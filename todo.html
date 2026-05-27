@@ -1,0 +1,1271 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="可爱的阿米娅.jpg" type="image/jpeg">
+<title>待办事项清单</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #f0f2f5;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+/* ─── 整体三栏布局 ─── */
+.layout {
+  display: flex;
+  gap: 0;
+  width: 1250px;
+  max-width: 100%;
+  align-items: flex-start;
+}
+
+/* ─── 左侧：日期备忘 ─── */
+.date-panel {
+  width: 330px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 20px;
+}
+
+.date-panel h2 {
+  font-size: 18px;
+  color: #1a1a2e;
+  margin-bottom: 16px;
+  white-space: nowrap;
+}
+
+.date-add {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  margin-bottom: 14px;
+}
+
+.date-add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.date-add-row:last-child {
+  margin-bottom: 0;
+}
+
+.date-add input[type="date"] {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  color: #333;
+}
+
+.date-add input[type="date"]:focus {
+  border-color: #5c6bc0;
+}
+
+.date-add input[type="text"] {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+}
+
+.date-add input[type="text"]:focus {
+  border-color: #5c6bc0;
+}
+
+.date-add button {
+  padding: 8px 14px;
+  background: #5c6bc0;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.date-add button:hover {
+  background: #4e5ab0;
+}
+
+.date-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.date-item {
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  transition: box-shadow 0.2s;
+}
+
+.date-item:hover {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.date-item .date-tag {
+  background: #e8eaf6;
+  color: #3949ab;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.date-item .date-note {
+  flex: 1;
+  font-size: 14px;
+  color: #333;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.date-item .date-del {
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.date-item .date-del:hover {
+  color: #ff5252;
+  background: #fff0f0;
+}
+
+.date-empty {
+  text-align: center;
+  color: #bbb;
+  padding: 30px 0;
+  font-size: 13px;
+}
+
+/* ─── 分隔线 ─── */
+.divider {
+  width: 1px;
+  background: #dde;
+  align-self: stretch;
+  margin: 0 18px;
+  flex-shrink: 0;
+  min-height: 400px;
+}
+
+/* ─── 中间：待办主体 ─── */
+.main-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ─── 右侧：工作登记 & 明日消息 ─── */
+.right-panel {
+  width: 280px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 20px;
+}
+
+.main-panel h1 {
+  text-align: center;
+  color: #1a1a2e;
+  margin-bottom: 24px;
+  font-size: 26px;
+}
+
+.add-section {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.add-section input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.add-section input:focus {
+  border-color: #4caf50;
+}
+
+.add-section button {
+  padding: 12px 24px;
+  background: #4caf50;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.add-section button:hover {
+  background: #43a047;
+}
+
+.summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.summary-text {
+  font-size: 13px;
+  color: #666;
+}
+
+.summary-text strong {
+  color: #333;
+}
+
+.clear-btn {
+  padding: 7px 14px;
+  background: #ff5252;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.clear-btn:hover {
+  background: #e04848;
+}
+
+/* 全局进度条 */
+.global-progress-wrap {
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.global-label {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.global-bar {
+  height: 10px;
+  background: #e8e8e8;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.global-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #66bb6a);
+  border-radius: 5px;
+  transition: width 0.4s ease;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.todo-item {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: box-shadow 0.2s, opacity 0.2s;
+}
+
+.todo-item:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+.todo-item.done {
+  opacity: 0.5;
+}
+
+.todo-item.done .todo-text {
+  text-decoration: line-through;
+  color: #aaa;
+}
+
+.todo-item.favorite {
+  border-left: 3px solid #ffc107;
+  padding-left: 15px;
+}
+
+.todo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 收藏星号 */
+.star-btn {
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 28px;
+  text-align: center;
+  border-radius: 50%;
+  transition: transform 0.15s, color 0.15s;
+  color: #ccc;
+  user-select: none;
+}
+
+.star-btn:hover {
+  transform: scale(1.25);
+}
+
+.star-btn.active {
+  color: #ffc107;
+}
+
+.star-btn.active:hover {
+  color: #ffb300;
+}
+
+.todo-text {
+  flex: 1;
+  font-size: 15px;
+  color: #333;
+  word-break: break-all;
+}
+
+/* 勾选框 */
+.check-wrap {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.check-wrap input {
+  display: none;
+}
+
+.check-mark {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #d0d0d0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 13px;
+  color: transparent;
+  user-select: none;
+}
+
+.check-wrap input:checked + .check-mark {
+  background: #4caf50;
+  border-color: #4caf50;
+  color: #fff;
+}
+
+/* 进度区域 */
+.progress-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-left: 62px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 7px;
+  background: #e8e8e8;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #81c784);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+.progress-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.progress-input {
+  width: 48px;
+  padding: 5px 5px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.progress-input:focus {
+  border-color: #4caf50;
+}
+
+.percent-sign {
+  font-size: 13px;
+  color: #888;
+}
+
+/* 删除按钮 */
+.delete-btn {
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.delete-btn:hover {
+  color: #ff5252;
+  background: #fff0f0;
+}
+
+.empty-hint {
+  text-align: center;
+  color: #bbb;
+  padding: 50px 0;
+  font-size: 14px;
+}
+
+/* ─── 每日工作登记 ─── */
+.worklog-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.worklog-section h2 {
+  font-size: 17px;
+  color: #1a1a2e;
+  margin-bottom: 4px;
+}
+
+.worklog-hint {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 12px;
+}
+
+.worklog-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.worklog-tab {
+  padding: 5px 12px;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  background: #fafafa;
+  font-size: 12px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.worklog-tab:hover {
+  border-color: #5c6bc0;
+  color: #5c6bc0;
+}
+
+.worklog-tab.active {
+  background: #5c6bc0;
+  color: #fff;
+  border-color: #5c6bc0;
+}
+
+.worklog-textarea {
+  width: 100%;
+  height: 180px;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  line-height: 1.6;
+  transition: border-color 0.2s;
+}
+
+.worklog-textarea:focus {
+  border-color: #5c6bc0;
+}
+
+.worklog-textarea[readonly] {
+  background: #f9f9f9;
+  color: #888;
+}
+
+/* ─── 明天要说的话 ─── */
+.tomorrow-section {
+  margin-top: 16px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.tomorrow-section h2 {
+  font-size: 17px;
+  color: #1a1a2e;
+  margin-bottom: 4px;
+}
+
+.tomorrow-hint {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 12px;
+}
+
+.tomorrow-textarea {
+  width: 100%;
+  height: 120px;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  line-height: 1.6;
+  transition: border-color 0.2s;
+}
+
+.tomorrow-textarea:focus {
+  border-color: #ff9800;
+}
+
+/* ─── 弹窗遮罩 ─── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 9999;
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-overlay.show {
+  display: flex;
+}
+
+.modal-box {
+  background: #fff;
+  border-radius: 16px;
+  padding: 32px 28px 24px;
+  max-width: 420px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  animation: modalIn 0.25s ease;
+}
+
+@keyframes modalIn {
+  from { transform: translateY(-30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-box h3 {
+  font-size: 18px;
+  color: #1a1a2e;
+  margin-bottom: 16px;
+}
+
+.modal-box p {
+  font-size: 15px;
+  color: #555;
+  line-height: 1.7;
+  margin-bottom: 24px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.modal-confirm {
+  padding: 10px 36px;
+  background: #5c6bc0;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.modal-confirm:hover {
+  background: #4e5ab0;
+}
+
+/* ─── 响应式 ─── */
+@media (max-width: 1000px) {
+  .layout {
+    flex-direction: column;
+  }
+  .date-panel {
+    width: 100%;
+    position: static;
+    margin-left: 0;
+    margin-bottom: 24px;
+  }
+  .right-panel {
+    width: 100%;
+    position: static;
+    margin-top: 24px;
+  }
+  .divider {
+    display: none;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ═══ 左侧：日期备忘 ═══ -->
+  <aside class="date-panel">
+    <h2>📅 日期备忘</h2>
+
+    <div class="date-add">
+      <div class="date-add-row">
+        <input type="date" id="dateInput">
+      </div>
+      <div class="date-add-row">
+        <input type="text" id="dateNoteInput" placeholder="备注内容..." autocomplete="off">
+        <button id="addDateBtn">添加</button>
+      </div>
+    </div>
+
+    <div class="date-list" id="dateList"></div>
+  </aside>
+
+  <!-- ═══ 分隔线 ═══ -->
+  <div class="divider"></div>
+
+  <!-- ═══ 右侧：待办事项 ═══ -->
+  <main class="main-panel">
+    <h1>📋 待办事项清单</h1>
+
+    <div class="add-section">
+      <input type="text" id="todoInput" placeholder="输入新的待办事项..." autocomplete="off">
+      <button id="addBtn">添加</button>
+    </div>
+
+    <div class="global-progress-wrap">
+      <div class="global-label">总进度 <span id="globalPercent">0%</span></div>
+      <div class="global-bar">
+        <div class="global-fill" id="globalFill" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <div class="summary">
+      <span class="summary-text">
+        共 <strong id="totalCount">0</strong> 项，已完成 <strong id="doneCount">0</strong> 项
+      </span>
+      <button class="clear-btn" id="clearDone">清除已完成</button>
+    </div>
+
+    <div class="todo-list" id="todoList"></div>
+  </main>
+
+  <!-- ═══ 分隔线 ═══ -->
+  <div class="divider"></div>
+
+  <!-- ═══ 右侧：工作登记 & 明日消息 ═══ -->
+  <aside class="right-panel">
+    <section class="worklog-section">
+      <h2>📝 每日工作登记</h2>
+      <div class="worklog-hint">每天自动清空，点击日期可回溯查看</div>
+      <div class="worklog-tabs" id="worklogTabs"></div>
+      <textarea class="worklog-textarea" id="worklogTextarea" placeholder="记录今天做了什么..."></textarea>
+    </section>
+
+    <section class="tomorrow-section">
+      <h2>💬 明天要说的话</h2>
+      <div class="tomorrow-hint">写一句话给明天的自己，明天打开时会弹窗提醒</div>
+      <textarea class="tomorrow-textarea" id="tomorrowTextarea" placeholder="写给明天的自己..."></textarea>
+    </section>
+  </aside>
+
+</div>
+
+<!-- ═══ 明日消息弹窗 ═══ -->
+<div class="modal-overlay" id="tomorrowModal">
+  <div class="modal-box">
+    <h3>📩 昨天的你留了一句话</h3>
+    <p id="modalMessage"></p>
+    <button class="modal-confirm" id="modalConfirm">确认</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  /* ═══════════════════════════════════════════
+   *  数据层
+   * ═══════════════════════════════════════════ */
+  var TODO_KEY = 'my_todo_list_v2';
+  var DATE_KEY = 'my_date_notes';
+
+  var todos = [];
+  var dateNotes = [];
+
+  function loadTodos() {
+    try {
+      var raw = localStorage.getItem(TODO_KEY);
+      if (raw) todos = JSON.parse(raw);
+    } catch (e) { todos = []; }
+    todos.forEach(function(t) {
+      if (t.favorite === undefined) t.favorite = false;
+    });
+  }
+
+  function saveTodos() {
+    localStorage.setItem(TODO_KEY, JSON.stringify(todos));
+  }
+
+  function loadDates() {
+    try {
+      var raw = localStorage.getItem(DATE_KEY);
+      if (raw) dateNotes = JSON.parse(raw);
+    } catch (e) { dateNotes = []; }
+    // 按日期排序（最近的在前）
+    dateNotes.sort(function(a, b) { return a.date.localeCompare(b.date); });
+  }
+
+  function saveDates() {
+    localStorage.setItem(DATE_KEY, JSON.stringify(dateNotes));
+  }
+
+  /* ═══════════════════════════════════════════
+   *  待办事项渲染 & 逻辑
+   * ═══════════════════════════════════════════ */
+
+  function renderTodos() {
+    var list = document.getElementById('todoList');
+    if (todos.length === 0) {
+      list.innerHTML = '<div class="empty-hint">还没有待办事项，快来添加吧 ✨</div>';
+    } else {
+      list.innerHTML = todos.map(function(t, i) {
+        var cls = 'todo-item';
+        if (t.done) cls += ' done';
+        if (t.favorite) cls += ' favorite';
+        return '<div class="' + cls + '" data-index="' + i + '">' +
+          '<div class="todo-row">' +
+            '<button class="star-btn' + (t.favorite ? ' active' : '') + '" data-action="star" title="收藏">' +
+              (t.favorite ? '★' : '☆') +
+            '</button>' +
+            '<label class="check-wrap">' +
+              '<input type="checkbox" data-action="check"' + (t.done ? ' checked' : '') + '>' +
+              '<span class="check-mark">✓</span>' +
+            '</label>' +
+            '<span class="todo-text">' + escapeHtml(t.text) + '</span>' +
+            '<button class="delete-btn" data-action="delete" title="删除">×</button>' +
+          '</div>' +
+          '<div class="progress-area">' +
+            '<div class="progress-bar">' +
+              '<div class="progress-fill" style="width:' + (t.progress || 0) + '%"></div>' +
+            '</div>' +
+            '<div class="progress-input-wrap">' +
+              '<input type="text" class="progress-input" value="' + (t.progress || 0) + '" ' +
+                     'inputmode="numeric" autocomplete="off" data-prev="' + (t.progress || 0) + '">' +
+              '<span class="percent-sign">%</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+    updateGlobal();
+    updateSummary();
+  }
+
+  function updateGlobal() {
+    var total = todos.length;
+    var sum = 0;
+    todos.forEach(function(t) { sum += (t.progress || 0); });
+    var avg = total === 0 ? 0 : Math.round(sum / total);
+    document.getElementById('globalPercent').textContent = avg + '%';
+    document.getElementById('globalFill').style.width = avg + '%';
+  }
+
+  function updateSummary() {
+    var total = todos.length;
+    var done = 0;
+    todos.forEach(function(t) { if (t.done) done++; });
+    document.getElementById('totalCount').textContent = total;
+    document.getElementById('doneCount').textContent = done;
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function addTodo(text) {
+    var newItem = { text: text, done: false, progress: 0, favorite: false };
+    var firstDone = -1;
+    for (var i = 0; i < todos.length; i++) {
+      if (todos[i].done) { firstDone = i; break; }
+    }
+    if (firstDone >= 0) {
+      todos.splice(firstDone, 0, newItem);
+    } else {
+      todos.push(newItem);
+    }
+    saveTodos();
+    renderTodos();
+  }
+
+  function toggleDone(itemEl, index) {
+    var wasDone = todos[index].done;
+    todos[index].done = !todos[index].done;
+    // 勾选完成时：取消收藏 + 进度100% + 移到末尾
+    if (!wasDone) {
+      todos[index].favorite = false;
+      todos[index].progress = 100;
+      var item = todos.splice(index, 1)[0];
+      todos.push(item);
+      saveTodos();
+      renderTodos();
+    } else {
+      saveTodos();
+      itemEl.classList.toggle('done', todos[index].done);
+      updateSummary();
+      updateGlobal();
+    }
+  }
+
+  function deleteTodo(index) {
+    todos.splice(index, 1);
+    saveTodos();
+    renderTodos();
+  }
+
+  function clearDoneTodos() {
+    todos = todos.filter(function(t) { return !t.done; });
+    saveTodos();
+    renderTodos();
+  }
+
+  function toggleFavorite(index) {
+    todos[index].favorite = !todos[index].favorite;
+    var favs = [], rest = [];
+    todos.forEach(function(t) {
+      if (t.favorite) favs.push(t); else rest.push(t);
+    });
+    todos = favs.concat(rest);
+    saveTodos();
+    renderTodos();
+  }
+
+  function applyProgress(inputEl) {
+    var itemEl = inputEl.closest('.todo-item');
+    var index = parseInt(itemEl.dataset.index, 10);
+    var raw = inputEl.value.trim();
+    var val;
+    if (raw === '') {
+      val = 0;
+    } else {
+      val = parseInt(raw, 10);
+      if (isNaN(val)) val = 0;
+      if (val > 100) val = parseInt(inputEl.dataset.prev, 10) || 0;
+      if (val < 0) val = 0;
+    }
+    inputEl.value = val;
+    inputEl.dataset.prev = val;
+    todos[index].progress = val;
+    saveTodos();
+    itemEl.querySelector('.progress-fill').style.width = val + '%';
+    updateGlobal();
+  }
+
+  /* ═══════════════════════════════════════════
+   *  日期备忘渲染 & 逻辑
+   * ═══════════════════════════════════════════ */
+
+  function renderDates() {
+    var list = document.getElementById('dateList');
+    if (dateNotes.length === 0) {
+      list.innerHTML = '<div class="date-empty">暂无日期备忘</div>';
+    } else {
+      list.innerHTML = dateNotes.map(function(d, i) {
+        return '<div class="date-item">' +
+          '<span class="date-tag">' + formatDate(d.date) + '</span>' +
+          '<span class="date-note">' + escapeHtml(d.note) + '</span>' +
+          '<button class="date-del" data-index="' + i + '" title="删除">×</button>' +
+        '</div>';
+      }).join('');
+    }
+  }
+
+  function formatDate(dateStr) {
+    // dateStr: "2026-05-16"
+    var parts = dateStr.split('-');
+    return parts[1] + '/' + parts[2];
+  }
+
+  function addDateNote() {
+    var dateInput = document.getElementById('dateInput');
+    var noteInput = document.getElementById('dateNoteInput');
+    var date = dateInput.value.trim();
+    var note = noteInput.value.trim();
+    if (!date) return;
+    if (!note) return;
+
+    dateNotes.unshift({ date: date, note: note });
+    dateNotes.sort(function(a, b) { return a.date.localeCompare(b.date); });
+    saveDates();
+    renderDates();
+    dateInput.value = '';
+    noteInput.value = '';
+  }
+
+  function deleteDateNote(index) {
+    dateNotes.splice(index, 1);
+    saveDates();
+    renderDates();
+  }
+
+  /* ═══════════════════════════════════════════
+   *  待办事件委托
+   * ═══════════════════════════════════════════ */
+
+  var todoList = document.getElementById('todoList');
+
+  todoList.addEventListener('click', function(e) {
+    var target = e.target;
+    var action = target.dataset.action;
+    if (!action) {
+      var wrap = target.closest('[data-action]');
+      if (wrap) { target = wrap; action = wrap.dataset.action; }
+    }
+    if (!action) return;
+    var itemEl = target.closest('.todo-item');
+    var index = parseInt(itemEl.dataset.index, 10);
+
+    if (action === 'check') {
+      toggleDone(itemEl, index);
+    } else if (action === 'delete') {
+      deleteTodo(index);
+    } else if (action === 'star') {
+      toggleFavorite(index);
+    }
+  });
+
+  // 进度输入：拦截 >100 的按键
+  todoList.addEventListener('keydown', function(e) {
+    if (!e.target.matches('.progress-input')) return;
+    var key = e.key;
+    if (key === 'Backspace' || key === 'Delete' ||
+        key === 'ArrowLeft' || key === 'ArrowRight' ||
+        key === 'ArrowUp' || key === 'ArrowDown' ||
+        key === 'Tab' || key === 'Home' || key === 'End' ||
+        key === 'Escape') return;
+    if (e.ctrlKey || e.metaKey) return;
+
+    if (!/^[0-9]$/.test(key)) {
+      e.preventDefault();
+      return;
+    }
+
+    var input = e.target;
+    var start = input.selectionStart;
+    var end = input.selectionEnd;
+    var tentative = input.value.substring(0, start) + key + input.value.substring(end);
+    if (parseInt(tentative, 10) > 100) {
+      e.preventDefault();
+    }
+  });
+
+  todoList.addEventListener('input', function(e) {
+    if (!e.target.matches('.progress-input')) return;
+    applyProgress(e.target);
+  });
+
+  todoList.addEventListener('blur', function(e) {
+    if (!e.target.matches('.progress-input')) return;
+    if (e.target.value.trim() === '') {
+      e.target.value = '0';
+      e.target.dataset.prev = '0';
+      applyProgress(e.target);
+    }
+  }, true);
+
+  todoList.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.matches('.progress-input')) {
+      e.preventDefault();
+      e.target.blur();
+    }
+  });
+
+  /* ═══════════════════════════════════════════
+   *  日期备忘事件委托
+   * ═══════════════════════════════════════════ */
+
+  document.getElementById('dateList').addEventListener('click', function(e) {
+    if (e.target.matches('.date-del')) {
+      deleteDateNote(parseInt(e.target.dataset.index, 10));
+    }
+  });
+
+  document.getElementById('addDateBtn').addEventListener('click', addDateNote);
+
+  document.getElementById('dateNoteInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') addDateNote();
+  });
+
+  /* ═══════════════════════════════════════════
+   *  顶部添加栏 & 清除按钮
+   * ═══════════════════════════════════════════ */
+
+  document.getElementById('addBtn').addEventListener('click', function() {
+    var input = document.getElementById('todoInput');
+    var text = input.value.trim();
+    if (!text) return;
+    addTodo(text);
+    input.value = '';
+    input.focus();
+  });
+
+  document.getElementById('todoInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      var text = this.value.trim();
+      if (!text) return;
+      addTodo(text);
+      this.value = '';
+    }
+  });
+
+  document.getElementById('clearDone').addEventListener('click', clearDoneTodos);
+
+  /* ═══════════════════════════════════════════
+   *  每日工作登记
+   * ═══════════════════════════════════════════ */
+  var WORKLOG_KEY = 'my_worklog';
+  var worklogData = {};      // { '2026-05-20': '内容...', ... }
+  var worklogActive = '';    // 当前查看的日期 '2026-05-20'
+  var worklogTimer = null;   // 输入防抖
+
+  function todayStr() {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  function loadWorklog() {
+    try {
+      var raw = localStorage.getItem(WORKLOG_KEY);
+      if (raw) worklogData = JSON.parse(raw);
+    } catch (e) { worklogData = {}; }
+  }
+
+  function saveWorklog() {
+    localStorage.setItem(WORKLOG_KEY, JSON.stringify(worklogData));
+  }
+
+  function renderWorklogTabs() {
+    var container = document.getElementById('worklogTabs');
+    var today = todayStr();
+    var dates = Object.keys(worklogData).filter(function(d) { return d !== today; });
+    dates.sort(function(a, b) { return b.localeCompare(a); }); // 降序：最近的在前
+    dates.unshift(today);
+
+    container.innerHTML = dates.map(function(d) {
+      var label = d === today ? '今天' : d.replace(/^\d{4}-(\d{2})-(\d{2})$/, '$1/$2');
+      var cls = 'worklog-tab' + (d === worklogActive ? ' active' : '');
+      return '<span class="' + cls + '" data-date="' + d + '">' + label + '</span>';
+    }).join('');
+  }
+
+  function renderWorklogContent() {
+    var textarea = document.getElementById('worklogTextarea');
+    var content = worklogData[worklogActive] || '';
+    textarea.value = content;
+    if (worklogActive === todayStr()) {
+      textarea.removeAttribute('readonly');
+      textarea.placeholder = '记录今天做了什么...';
+    } else {
+      textarea.setAttribute('readonly', '');
+      textarea.placeholder = '';
+    }
+  }
+
+  function switchWorklogDate(date) {
+    worklogActive = date;
+    renderWorklogTabs();
+    renderWorklogContent();
+  }
+
+  document.getElementById('worklogTabs').addEventListener('click', function(e) {
+    var tab = e.target.closest('.worklog-tab');
+    if (!tab) return;
+    switchWorklogDate(tab.dataset.date);
+  });
+
+  document.getElementById('worklogTextarea').addEventListener('input', function() {
+    if (worklogActive !== todayStr()) return;
+    clearTimeout(worklogTimer);
+    var self = this;
+    worklogTimer = setTimeout(function() {
+      worklogData[todayStr()] = self.value;
+      if (self.value.trim() === '') {
+        delete worklogData[todayStr()];
+      }
+      saveWorklog();
+      if (self.value.trim() !== '' && !Object.prototype.hasOwnProperty.call(worklogData, worklogActive)) {
+        renderWorklogTabs();
+      }
+    }, 400);
+  });
+
+  /* ═══════════════════════════════════════════
+   *  明天要说的话
+   * ═══════════════════════════════════════════ */
+  var TOMORROW_KEY = 'my_tomorrow_msg';
+  var tomorrowMsg = '';       // { date: '2026-05-21', text: '...' }
+  var TOMORROW_DISMISS = 'my_tomorrow_dismiss';
+
+  function loadTomorrow() {
+    try {
+      var raw = localStorage.getItem(TOMORROW_KEY);
+      if (raw) tomorrowMsg = JSON.parse(raw);
+    } catch (e) { tomorrowMsg = null; }
+  }
+
+  function saveTomorrow() {
+    localStorage.setItem(TOMORROW_KEY, JSON.stringify(tomorrowMsg));
+  }
+
+  function renderTomorrow() {
+    var textarea = document.getElementById('tomorrowTextarea');
+    var today = todayStr();
+    // 如果存储的消息目标日期就是今天，展示在 textarea 中（但不可编辑是昨天的留言）
+    if (tomorrowMsg && tomorrowMsg.date === today) {
+      textarea.value = tomorrowMsg.text;
+    } else if (tomorrowMsg && tomorrowMsg.date > today) {
+      // 未来日期的消息还在
+      textarea.value = tomorrowMsg.text;
+    } else {
+      textarea.value = '';
+    }
+  }
+
+  document.getElementById('tomorrowTextarea').addEventListener('input', function() {
+    var today = todayStr();
+    var tomorrowDate = new Date();
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    var target = tomorrowDate.toISOString().split('T')[0];
+
+    var text = this.value;
+    if (text.trim() === '') {
+      tomorrowMsg = null;
+    } else {
+      tomorrowMsg = { date: target, text: text };
+    }
+    saveTomorrow();
+  });
+
+  // 弹窗：检查是否有昨天留给今天的消息
+  function checkTomorrowModal() {
+    var today = todayStr();
+    if (tomorrowMsg && tomorrowMsg.date === today && tomorrowMsg.text.trim() !== '') {
+      // 检查今天是否已经关闭过弹窗
+      var dismissed = localStorage.getItem(TOMORROW_DISMISS);
+      if (dismissed === today) return;
+      document.getElementById('modalMessage').textContent = tomorrowMsg.text;
+      document.getElementById('tomorrowModal').classList.add('show');
+    }
+  }
+
+  document.getElementById('modalConfirm').addEventListener('click', function() {
+    document.getElementById('tomorrowModal').classList.remove('show');
+    localStorage.setItem(TOMORROW_DISMISS, todayStr());
+  });
+
+  /* ═══════════════════════════════════════════
+   *  启动
+   * ═══════════════════════════════════════════ */
+  loadTodos();
+  loadDates();
+  loadWorklog();
+  loadTomorrow();
+  worklogActive = todayStr();
+  // 默认日期设为今天
+  document.getElementById('dateInput').value = todayStr();
+  renderTodos();
+  renderDates();
+  renderWorklogTabs();
+  renderWorklogContent();
+  renderTomorrow();
+  // 延迟弹出，让页面先渲染完
+  setTimeout(checkTomorrowModal, 300);
+})();
+</script>
+
+</body>
+</html>
