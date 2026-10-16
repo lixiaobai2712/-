@@ -1264,6 +1264,31 @@ body {
   padding: 14px 16px; font-size: 15px; font-weight: 600;
   color: #3949ab; border-bottom: 1px solid #eee;
 }
+/* 思路侧边栏：日期导航条（换页/按日期写） */
+.ideas-nav {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 16px; border-bottom: 1px solid #eee; background: #fafbff;
+}
+.ideas-nav-btn {
+  width: 30px; height: 30px; flex-shrink: 0;
+  border: 1px solid #ddd; border-radius: 8px; background: #fff; color: #3949ab;
+  font-size: 14px; cursor: pointer; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ideas-nav-btn:hover { background: #e8eaf6; border-color: #5c6bc0; }
+.ideas-nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.ideas-date-label {
+  flex: 1; text-align: center; font-size: 14px; font-weight: 600; color: #333;
+  cursor: pointer; padding: 4px 6px; border-radius: 6px; user-select: none;
+}
+.ideas-date-label:hover { background: #e8eaf6; }
+.ideas-today-btn {
+  flex-shrink: 0; height: 30px; padding: 0 10px;
+  border: 1px solid #5c6bc0; border-radius: 8px; background: #5c6bc0; color: #fff;
+  font-size: 12px; cursor: pointer; transition: background 0.15s;
+}
+.ideas-today-btn:hover { background: #3f51b5; }
 .ideas-close {
   background: none; border: none; color: #999; font-size: 16px;
   cursor: pointer; padding: 4px 6px; border-radius: 6px;
@@ -1440,10 +1465,17 @@ body {
   </div>
 </div>
 
-<!-- ═══ 思路整理侧边栏 ═══ -->
+<!-- ═══ 思路整理侧边栏（按日期分页） ═══ -->
 <div class="ideas-drawer" id="ideasDrawer">
   <div class="ideas-head">💡 思路整理<button class="ideas-close" id="ideasClose" title="收起">✕</button></div>
-  <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘..." autocomplete="off"></textarea>
+  <div class="ideas-nav">
+    <button class="ideas-nav-btn" id="ideasPrev" title="前一天">◀</button>
+    <span class="ideas-date-label" id="ideasDateLabel" title="点击选择日期"></span>
+    <button class="ideas-nav-btn" id="ideasNext" title="后一天">▶</button>
+    <button class="ideas-today-btn" id="ideasToday" title="回到今天">今天</button>
+  </div>
+  <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（按日期保存，翻页自动存档）" autocomplete="off"></textarea>
+  <input type="date" id="ideasDatePicker" style="position:absolute;visibility:hidden;width:0;height:0;border:none;padding:0;">
 </div>
 <div class="ideas-toggle" id="ideasToggle" title="思路整理">◀</div>
 
@@ -1812,7 +1844,7 @@ body {
   }
 
   function addTodo(text) {
-    var newItem = { id: generateId(), text: text, done: false, progress: 0, favorite: false, note: '', approach: '' };
+    var newItem = { id: generateId(), text: text, done: false, progress: 0, favorite: false, note: '', approach: '', updatedAt: Date.now() };
     var firstDone = -1;
     for (var i = 0; i < todos.length; i++) {
       if (todos[i].done) { firstDone = i; break; }
@@ -1833,6 +1865,7 @@ body {
   function toggleDone(itemEl, index) {
     var wasDone = todos[index].done;
     todos[index].done = !todos[index].done;
+    todos[index].updatedAt = Date.now();  // 双端同步冲突裁决用
     // 勾选完成时：取消收藏 + 进度100% + 移到末尾 + 记入工作登记
     if (!wasDone) {
       todos[index].favorite = false;
@@ -1917,6 +1950,7 @@ body {
     if (!empty) inputEl.value = val;
     inputEl.dataset.prev = val;
     todos[index].progress = val;
+    todos[index].updatedAt = Date.now();  // 双端同步冲突裁决用
     saveTodos();
     itemEl.querySelector('.progress-fill').style.width = val + '%';
     updateGlobal();
@@ -2947,18 +2981,144 @@ body {
   });
 
   /* ═══════════════════════════════════════════
-   *  思路整理侧边栏（持久，不随日期清空）
+   *  思路整理侧边栏（按日期分页，翻页自动存档，记录修改时间）
+   *  存储格式：my_ideas = {"2026-10-16": {"text": "内容", "ts": 1697531400000}, ...}
+   *  ts = 最后修改时间戳（毫秒），悬停日期标签可见
+   *  兼容旧格式：纯字符串整体 → 迁到今天；字符串值 → 迁移为 {text, ts}
    * ═══════════════════════════════════════════ */
   var IDEAS_KEY = 'my_ideas';
   var IDEAS_OPEN_KEY = 'my_ideas_open';
+  var IDEAS_POS_KEY = 'my_ideas_pos';   // 记住手动翻到的日期
   var ideasTimer = null;
+  var ideasCurrentDate = todayStr();   // 当前查看/编辑的日期（YYYY-MM-DD）
+  var ideasDates = [];                 // 所有有记录的日期（升序）
 
-  function loadIdeas() {
+  function ideasPad(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function ideasToKey(d) { return d.getFullYear() + '-' + ideasPad(d.getMonth() + 1) + '-' + ideasPad(d.getDate()); }
+
+  function ideasFmtTime(ts) {
+    // 格式化为 "x月x日 HH:MM"（今天只显示 HH:MM）
+    try {
+      var d = new Date(ts);
+      var now = new Date();
+      var hm = ideasPad(d.getHours()) + ':' + ideasPad(d.getMinutes());
+      if (d.toDateString() === now.toDateString()) return '今天 ' + hm;
+      return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm;
+    } catch(e) { return ''; }
+  }
+
+  function loadIdeasStore() {
+    var store = {};
     try {
       var raw = localStorage.getItem(IDEAS_KEY);
       if (raw !== null) {
-        document.getElementById('ideasTextarea').value = raw;
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          // 兼容两种对象值：{date: "字符串"} 旧版 或 {date: {text,ts}} 新版
+          var needMigrate = false;
+          Object.keys(parsed).forEach(function(k) {
+            var v = parsed[k];
+            if (v && typeof v === 'object' && typeof v.text === 'string') {
+              store[k] = { text: v.text, ts: typeof v.ts === 'number' ? v.ts : Date.now() };
+            } else if (typeof v === 'string') {
+              if (v.trim() !== '') {
+                store[k] = { text: v, ts: Date.now() };
+                needMigrate = true;
+              }
+            } else if (v && typeof v.text !== 'undefined') {
+              store[k] = { text: String(v.text), ts: typeof v.ts === 'number' ? v.ts : Date.now() };
+              needMigrate = true;
+            }
+          });
+          if (needMigrate) ideasSaveStore(store);  // 迁移后立即落盘
+        } else if (typeof parsed === 'string') {
+          // 旧格式：my_ideas 整体是纯字符串 → 迁到今天
+          if (parsed.trim() !== '') {
+            store[ideasCurrentDate] = { text: parsed, ts: Date.now() };
+            ideasSaveStore(store);
+          }
+        }
       }
+    } catch(e) { console.error('loadIdeasStore:', e); }
+    return store;
+  }
+
+  function ideasSaveStore(store) {
+    try { saveWithBackup(IDEAS_KEY, JSON.stringify(store)); } catch(e) {}
+  }
+
+  function ideasSyncDates() {
+    // 刷新有记录的日期列表（升序）
+    try {
+      var store = loadIdeasStore();
+      ideasDates = Object.keys(store).filter(function(d) {
+        return store[d] && typeof store[d].text === 'string' && store[d].text.trim() !== '';
+      }).sort();
+    } catch(e) { ideasDates = []; }
+  }
+
+  function ideasLoadPage(date) {
+    // 载入指定日期的内容到 textarea（同时更新日期标签、按钮态、位置记忆与悬停时间）
+    ideasCurrentDate = date;
+    var store = loadIdeasStore();
+    var rec = store[date];
+    var text = (rec && typeof rec.text === 'string') ? rec.text : '';
+    document.getElementById('ideasTextarea').value = text;
+    document.getElementById('ideasDateLabel').textContent = date;
+    // 悬停显示最后修改时间（QQ 聊天式：平时不可见，想看自己把鼠标放上去）
+    document.getElementById('ideasDateLabel').title =
+      (rec && rec.ts) ? ('最后修改：' + ideasFmtTime(rec.ts)) : '这一天还没有记录';
+    // 前一天 / 后一天按钮态
+    document.getElementById('ideasPrev').disabled = false;
+    document.getElementById('ideasNext').disabled = false;
+    document.getElementById('ideasToday').disabled = (date === todayStr());
+    try { localStorage.setItem(IDEAS_POS_KEY, date); } catch(e) {}
+  }
+
+  function ideasSavePage() {
+    // 把当前 textarea 内容存到当前日期并记录修改时间；空内容不建档（已有空记录则清除）
+    var store = loadIdeasStore();
+    var val = document.getElementById('ideasTextarea').value;
+    if (val.trim() === '') {
+      delete store[ideasCurrentDate];
+    } else {
+      var old = store[ideasCurrentDate];
+      store[ideasCurrentDate] = {
+        text: val,
+        ts: Date.now()   // 每次改动都刷新修改时间
+      };
+    }
+    ideasSaveStore(store);
+    // 若内容变化，同步更新悬停提示
+    document.getElementById('ideasDateLabel').title =
+      (val.trim() !== '' && store[ideasCurrentDate])
+        ? ('最后修改：' + ideasFmtTime(store[ideasCurrentDate].ts))
+        : '这一天还没有记录';
+    ideasSyncDates();
+  }
+
+  function ideasShift(days) {
+    // 翻页：按日历日前后移动（昨天/今天/明天），不跳变到最近记录；
+    // 无记录的日期也可写，内容自动按日期建档
+    ideasSavePage();  // 先存档当前页
+    var dt = new Date(ideasCurrentDate);
+    dt.setDate(dt.getDate() + days);
+    ideasLoadPage(ideasToKey(dt));
+  }
+
+  function ideasGoToday() {
+    ideasSavePage();
+    ideasLoadPage(todayStr());
+  }
+
+  function loadIdeas() {
+    try {
+      ideasSyncDates();
+      // 手动翻页体验：优先恢复到上次翻到的日期；无记录则定位今天
+      var pos = null;
+      try { pos = localStorage.getItem(IDEAS_POS_KEY); } catch(e) {}
+      ideasLoadPage(pos || todayStr());
       var open = localStorage.getItem(IDEAS_OPEN_KEY);
       if (open === 'true') {
         document.getElementById('ideasDrawer').classList.add('open');
@@ -2969,7 +3129,7 @@ body {
   }
 
   function saveIdeas() {
-    try { saveWithBackup(IDEAS_KEY, document.getElementById('ideasTextarea').value); } catch(e) {}
+    try { ideasSavePage(); } catch(e) {}
   }
 
   function toggleIdeas() {
@@ -2988,6 +3148,21 @@ body {
     ideasTimer = setTimeout(saveIdeas, 300);
   });
   document.getElementById('ideasTextarea').addEventListener('blur', saveIdeas);
+  document.getElementById('ideasPrev').addEventListener('click', function() { ideasShift(-1); });
+  document.getElementById('ideasNext').addEventListener('click', function() { ideasShift(1); });
+  document.getElementById('ideasToday').addEventListener('click', ideasGoToday);
+  // 点击日期标签 → 弹出日期选择器
+  document.getElementById('ideasDateLabel').addEventListener('click', function() {
+    var picker = document.getElementById('ideasDatePicker');
+    picker.value = ideasCurrentDate;
+    picker.showPicker ? picker.showPicker() : picker.focus();
+  });
+  document.getElementById('ideasDatePicker').addEventListener('change', function() {
+    if (this.value) {
+      ideasSavePage();
+      ideasLoadPage(this.value);
+    }
+  });
 
   /* ═══════════════════════════════════════════
    *  课表系统
@@ -3527,6 +3702,135 @@ body {
   });
 
   /* ═══════════════════════════════════════════
+   *  托盘球同步（可选功能）
+   *  ── 数据推送到本机 127.0.0.1:8899，供桌面托盘球读取展示
+   *  ── 托盘球未运行时静默失败，不影响页面正常使用
+   *  ═══════════════════════════════════════════ */
+  var TRAY_SYNC_URL = 'http://127.0.0.1:8899/api/sync';
+  var TRAY_PULL_URL = 'http://127.0.0.1:8899/api/pull';
+  var TRAY_FULL_URL = 'http://127.0.0.1:8899/api/full';
+  var traySyncTimer = null;
+  var trayLastPayload = '';
+  var trayAppliedVer = 0; // 已应用的悬浮球侧变更版本号
+
+  // 收集所有需要同步的 localStorage 数据
+  function collectTrayPayload() {
+    var keys = [TODO_KEY, DATE_KEY, PLAN_KEY, TODAY_KEY, MODE_KEY, PLAN_MODE_KEY,
+                WORKLOG_KEY, TOMORROW_KEY, TOMORROW_DISMISS, SCHEDULE_KEY, IDEAS_KEY];
+    var payload = {};
+    keys.forEach(function(k) {
+      try {
+        var v = localStorage.getItem(k);
+        if (v !== null && v !== undefined) payload[k] = v;
+      } catch(e) {}
+    });
+    return payload;
+  }
+
+  function pullFromTray() {
+    // 拉取悬浮球侧的勾选变更（用户在小窗里点击 ☑ 完成任务）
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', TRAY_PULL_URL, true);
+      xhr.onload = function() {
+        if (xhr.status !== 200) return;
+        try {
+          var d = JSON.parse(xhr.responseText);
+          if (!d || typeof d.ver !== 'number') return;
+          if (d.ver > trayAppliedVer && d.payload) {
+            trayAppliedVer = d.ver;
+            var incoming = JSON.parse(d.payload);
+            if (Array.isArray(incoming)) {
+              // 用悬浮球侧的勾选状态合并：仅更新 done/progress，保留本地其他字段
+              var byId = {};
+              incoming.forEach(function(t) { if (t && t.id) byId[t.id] = t; });
+              todos.forEach(function(t) {
+                var ext = byId[t.id];
+                if (ext && typeof ext.done === 'boolean') {
+                  t.done = ext.done;
+                  if (ext.done) t.progress = 100;
+                }
+              });
+              localStorage.setItem(TODO_KEY, JSON.stringify(todos));
+              safeCall(renderTodos, 'pull-renderTodos');
+              safeCall(updateSummary, 'pull-updateSummary');
+              safeCall(updateGlobal, 'pull-updateGlobal');
+              syncToTray(); // 立即回推，让悬浮球拿到最新全量数据
+            }
+          }
+        } catch(e) {}
+      };
+      xhr.onerror = function() {};
+      xhr.send();
+    } catch(e) {}
+  }
+
+  function syncToTray() {
+    try {
+      var payload = collectTrayPayload();
+      var text = JSON.stringify(payload);
+      if (text === trayLastPayload) return; // 内容无变化，不重复发送
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', TRAY_SYNC_URL, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onload = function() {
+        if (xhr.status === 200) trayLastPayload = text;
+      };
+      xhr.onerror = function() { /* 托盘球未运行，静默 */ };
+      xhr.send(text);
+    } catch(e) { /* 静默 */ }
+  }
+
+  function pullIdeasFromTray() {
+    // 拉取服务端思路（手机端写的思路同步到电脑网页侧边栏），按日期 ts 合并
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', TRAY_FULL_URL, true);
+      xhr.timeout = 4000;
+      xhr.onload = function() {
+        if (xhr.status !== 200) return;
+        try {
+          var d = JSON.parse(xhr.responseText);
+          var remote = JSON.parse((d.data && d.data.my_ideas) || '{}');
+          var local = JSON.parse(localStorage.getItem(IDEAS_KEY) || '{}');
+          var changed = false;
+          Object.keys(remote).forEach(function(date) {
+            var rv = remote[date];
+            var lv = local[date];
+            var rt = (rv && rv.ts) || 0;
+            var lt = (lv && lv.ts) || 0;
+            if (!lv || rt > lt) { local[date] = rv; changed = true; }
+          });
+          if (changed) {
+            localStorage.setItem(IDEAS_KEY, JSON.stringify(local));
+            safeCall(function() { ideasLoadPage(ideasCurrentDate); }, 'pull-ideas');
+          }
+        } catch(e) {}
+      };
+      xhr.onerror = function() {};
+      xhr.send();
+    } catch(e) {}
+  }
+
+  function startTraySync() {
+    // 页面打开先同步一次，之后每 8 秒检查变化
+    setTimeout(syncToTray, 1200);
+    traySyncTimer = setInterval(function() {
+      pullFromTray();   // 先拉悬浮球侧勾选变更（写回 localStorage 后会自动回推）
+      pullIdeasFromTray(); // 再拉思路（手机端写入的）
+      syncToTray();     // 再推送页面数据
+    }, 8000);
+    // 页面重新可见时立即同步
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        pullFromTray();
+        pullIdeasFromTray();
+        syncToTray();
+      }
+    });
+  }
+
+  /* ═══════════════════════════════════════════
    *  启动（每一步独立 try-catch，确保单模块异常不影响其他模块）
    * ═══════════════════════════════════════════ */
   function safeCall(fn, label) {
@@ -3545,6 +3849,7 @@ body {
   safeCall(loadWorklog, 'loadWorklog');
   safeCall(loadTomorrow, 'loadTomorrow');
   safeCall(loadIdeas, 'loadIdeas');
+  safeCall(startTraySync, 'startTraySync');
   worklogActive = todayStr();
   safeCall(function() { document.getElementById('dateInput').value = todayStr(); }, 'setDateInput');
   safeCall(updateModeUI, 'updateModeUI');

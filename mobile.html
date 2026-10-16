@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>待办 · 手机版</title>
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body {
+  margin: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #f5f6fa; color: #333; max-width: 480px; margin: 0 auto; min-height: 100vh;
+}
+/* ── 顶部 ── */
+header {
+  background: linear-gradient(135deg, #5c6bc0, #3f51b5); color: #fff;
+  padding: 14px 16px 10px; position: sticky; top: 0; z-index: 10;
+  display: flex; justify-content: space-between; align-items: center;
+}
+header .title { font-size: 17px; font-weight: 700; }
+header .sub { font-size: 11px; opacity: .85; margin-top: 2px; }
+header .status { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: rgba(255,255,255,.18); }
+header .status.offline { background: rgba(255,255,255,.18); }
+header .status.online { background: #4caf50; }
+/* ── 进度区 ── */
+.progress-card { background: #fff; margin: 10px 12px; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+.progress-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
+.progress-top b { font-size: 20px; color: #3949ab; }
+.progress-bar { height: 8px; background: #e8e8e8; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #66bb6a, #4caf50); border-radius: 4px; transition: width .3s; }
+/* ── 区块 ── */
+.section { margin: 12px; }
+.section-title { font-size: 13px; color: #888; margin: 4px 2px 8px; font-weight: 600; }
+.task { display: flex; align-items: center; background: #fff; border-radius: 10px; padding: 12px 12px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; }
+.task .check { width: 26px; height: 26px; min-width: 26px; border: 2px solid #c5cae9; border-radius: 50%; margin-right: 10px; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 15px; transition: all .15s; }
+.task.done .check { background: #4caf50; border-color: #4caf50; color: #fff; }
+.task .body { flex: 1; min-width: 0; }
+.task .text { font-size: 15px; line-height: 1.4; word-break: break-word; }
+.task.done .text { color: #bbb; text-decoration: line-through; }
+.task .meta { font-size: 12px; color: #999; margin-top: 3px; }
+.task .pct { font-size: 12px; color: #3949ab; font-weight: 600; margin-left: 6px; min-width: 36px; text-align: right; }
+.empty { text-align: center; color: #aaa; font-size: 13px; padding: 18px 0; }
+/* ── 底部固定栏 ── */
+footer {
+  position: sticky; bottom: 0; background: #fff; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  display: flex; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,.06); z-index: 10;
+}
+footer input { flex: 1; height: 42px; border: 1px solid #ddd; border-radius: 10px; padding: 0 12px; font-size: 15px; outline: none; }
+footer button { height: 42px; border: none; border-radius: 10px; background: #5c6bc0; color: #fff; font-size: 15px; padding: 0 16px; }
+footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
+/* ── 思路侧边栏（底部抽屉） ── */
+.drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 90; display: none; }
+.drawer-mask.show { display: block; }
+.drawer {
+  position: fixed; left: 0; right: 0; bottom: 0; background: #fff; z-index: 95;
+  border-radius: 16px 16px 0 0; padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateY(100%); transition: transform .25s ease; max-height: 78vh; display: flex; flex-direction: column;
+}
+.drawer.show { transform: translateY(0); }
+.drawer-title { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 700; color: #3949ab; margin-bottom: 10px; }
+.drawer-title .close-btn { font-size: 18px; color: #999; padding: 4px 8px; }
+.ideas-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ideas-nav button { height: 36px; border: 1px solid #ddd; border-radius: 8px; background: #fff; color: #3949ab; font-size: 14px; padding: 0 12px; }
+.ideas-nav .date-label { flex: 1; text-align: center; font-size: 14px; font-weight: 600; }
+.ideas-nav .today { background: #5c6bc0; color: #fff; border-color: #5c6bc0; }
+.ideas-textarea { width: 100%; min-height: 200px; flex: 1; border: 1px solid #eee; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.7; outline: none; resize: none; font-family: inherit; }
+.ideas-tip { font-size: 11px; color: #bbb; text-align: center; margin-top: 8px; }
+/* ── 云端同步弹窗 ── */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; display: none; align-items: center; justify-content: center; }
+.modal.show { display: flex; }
+.modal-box { background: #fff; border-radius: 14px; padding: 20px; width: 82%; max-width: 320px; }
+.modal-box h3 { margin: 0 0 12px; font-size: 16px; }
+.modal-box p { font-size: 13px; color: #666; margin: 6px 0; }
+.modal-box input { width: 100%; height: 40px; border: 1px solid #ddd; border-radius: 8px; padding: 0 10px; margin: 4px 0; font-size: 14px; }
+.modal-box .row { display: flex; gap: 8px; margin-top: 14px; }
+.modal-box .row button { flex: 1; height: 40px; border: none; border-radius: 8px; font-size: 14px; }
+.modal-box .row .primary { background: #5c6bc0; color: #fff; }
+.modal-box .row .plain { background: #eee; color: #555; }
+/* ── 小提示 ── */
+.toast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.8); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 13px; z-index: 120; display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="title">📋 待办</div>
+    <div class="sub" id="todayLabel"></div>
+  </div>
+  <div class="status" id="connStatus">检测中…</div>
+</header>
+
+<div class="progress-card">
+  <div class="progress-top">
+    <span>总进度</span>
+    <b id="pctNum">0%</b>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="pctBar" style="width:0%"></div></div>
+  <div class="progress-top" style="margin-top:6px"><span style="color:#999">已完成</span><span id="doneLabel" style="color:#999">0 / 0 项</span></div>
+</div>
+
+<div class="section">
+  <div class="section-title">📅 今日任务</div>
+  <div id="todayList"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">🗂 全部待办</div>
+  <div id="allList"></div>
+</div>
+
+<div class="section" style="margin-top:-4px">
+  <div class="section-title">💡 思路整理 <span style="float:right" id="ideasToggleBtn">› 打开</span></div>
+  <div id="ideasSummary" class="empty">点上方"打开"记录思路（按日期分页）</div>
+</div>
+
+<footer>
+  <input id="newTodoInput" placeholder="输入新任务..." autocomplete="off">
+  <button id="addBtn">添加</button>
+  <button class="btn-secondary" id="syncBtn">☁️ 同步</button>
+</footer>
+
+<!-- 思路抽屉 -->
+<div class="drawer-mask" id="ideasMask"></div>
+<div class="drawer" id="ideasDrawer">
+  <div class="drawer-title">
+    💡 思路整理
+    <span class="close-btn" id="ideasClose">✕</span>
+  </div>
+  <div class="ideas-nav">
+    <button id="ideasPrev">◀</button>
+    <span class="date-label" id="ideasDateLabel"></span>
+    <button id="ideasNext">▶</button>
+    <button class="today" id="ideasToday">今天</button>
+  </div>
+  <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（按日期保存）"></textarea>
+  <div class="ideas-tip" id="ideasTip">悬停/长按日期可看最后修改时间</div>
+</div>
+
+<!-- 云端同步弹窗 -->
+<div class="modal" id="cloudModal">
+  <div class="modal-box">
+    <h3>☁️ 坚果云同步</h3>
+    <p>在同一 WiFi 下会自动同步电脑；不同网络时用坚果云手动同步。</p>
+    <input id="cloudUrl" placeholder="WebDAV 地址（如 https://dav.jianguoyun.com/dav/todo/sync.json）">
+    <input id="cloudUser" placeholder="坚果云账号（邮箱）">
+    <input id="cloudPwd" type="password" placeholder="应用授权码（非登录密码）">
+    <div class="row">
+      <button class="primary" id="cloudUp">上传到云端</button>
+      <button class="plain" id="cloudDown">从云端拉取</button>
+    </div>
+    <div class="row"><button class="plain" style="width:100%" id="cloudClose">取消</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  // ═══════════════════════ 常量与状态 ═══════════════════════
+  var LS_KEY = 'mobile_todo_cache_v1';   // 本地离线缓存（含全量数据+seq）
+  var CFG_KEY = 'mobile_cloud_cfg_v1';   // 坚果云配置缓存
+  var IDEAS_KEY = 'mobile_ideas_v1';     // 思路（结构与网页版 my_ideas 一致）
+  var syncTimer = null;
+  var cloudCfg = null;
+
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function nowMs() { return Date.now(); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function fmtTime(ts) {
+    try {
+      var d = new Date(ts);
+      var hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+      if (d.toDateString() === new Date().toDateString()) return '今天 ' + hm;
+      return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm;
+    } catch(e) { return ''; }
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // 本地缓存 = { seq, data: {my_todo_list_v2, my_today_data, my_ideas, ...} }
+  function loadCache() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || '{"seq":0,"data":{}}'); }
+    catch(e) { return { seq: 0, data: {} }; }
+  }
+  function saveCache(c) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(c)); } catch(e) {}
+  }
+  function loadIdeasStore() {
+    try { return JSON.parse(localStorage.getItem(IDEAS_KEY) || '{}'); }
+    catch(e) { return {}; }
+  }
+  function saveIdeasStore(s) {
+    try { localStorage.setItem(IDEAS_KEY, JSON.stringify(s)); } catch(e) {}
+  }
+
+  var state = loadCache();
+  var todos = [];
+  function parseTodos() {
+    try { todos = JSON.parse(state.data.my_todo_list_v2 || '[]'); }
+    catch(e) { todos = []; }
+    if (!Array.isArray(todos)) todos = [];
+  }
+  function parseToday() {
+    try { return JSON.parse(state.data.my_today_data || '{}'); }
+    catch(e) { return {}; }
+  }
+
+  // ═══════════════════════ 渲染 ═══════════════════════
+  function render() {
+    parseTodos();
+    var todayMap = parseToday();
+    var today = todayStr();
+    var todayIds = todayMap[today] || [];
+    var byId = {};
+    todos.forEach(function(t) { if (t && t.id) byId[t.id] = t; });
+    var todayTasks = todayIds.map(function(id) { return byId[id]; }).filter(Boolean);
+    var allDone = todos.filter(function(t) { return t.done; });
+    var total = todos.length;
+    var doneCount = allDone.length;
+    var pct = total ? Math.round(todos.reduce(function(s, t) { return s + (parseInt(t.progress, 10) || 0); }, 0) / total) : 0;
+
+    document.getElementById('todayLabel').textContent = '📅 ' + today;
+    document.getElementById('pctNum').textContent = pct + '%';
+    document.getElementById('pctBar').style.width = pct + '%';
+    document.getElementById('doneLabel').textContent = doneCount + ' / ' + total + ' 项';
+
+    // 今日区
+    var tl = document.getElementById('todayList');
+    tl.innerHTML = '';
+    if (!todayTasks.length) {
+      tl.innerHTML = '<div class="empty">今日暂无任务</div>';
+    } else {
+      todayTasks.forEach(function(t) { tl.appendChild(taskRow(t)); });
+    }
+
+    // 全部待办区（未完成的在前，已完成的置后置灰）
+    var al = document.getElementById('allList');
+    al.innerHTML = '';
+    if (!todos.length) {
+      al.innerHTML = '<div class="empty">还没有任务</div>';
+    } else {
+      var pending = todos.filter(function(t) { return !t.done; });
+      var doneList = todos.filter(function(t) { return t.done; });
+      pending.concat(doneList).forEach(function(t) { al.appendChild(taskRow(t)); });
+    }
+
+    // 思路摘要
+    var sum = document.getElementById('ideasSummary');
+    var store = loadIdeasStore();
+    var keys = Object.keys(store).filter(function(k) { return store[k] && store[k].text; }).sort().reverse();
+    if (keys.length) {
+      sum.innerHTML = '<span style="font-size:13px;color:#666">最近：' + escapeHtml(store[keys[0]].text.slice(0, 30)) + (store[keys[0]].text.length > 30 ? '…' : '') + '（' + keys[0] + '）</span>';
+    } else {
+      sum.innerHTML = '<div class="empty">点上方"打开"记录思路（按日期分页）</div>';
+    }
+  }
+
+  function taskRow(t) {
+    var row = document.createElement('div');
+    row.className = 'task' + (t.done ? ' done' : '');
+    row.dataset.id = t.id;
+    var check = document.createElement('span');
+    check.className = 'check';
+    check.textContent = t.done ? '✓' : '';
+    var body = document.createElement('span');
+    body.className = 'body';
+    var text = document.createElement('div');
+    text.className = 'text';
+    text.textContent = t.text || '(无标题)';
+    body.appendChild(text);
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+    var metaStr = '';
+    if (t.favorite) metaStr += '⭐ ';
+    if (t.note) metaStr += '📝 ';
+    if (t.approach) metaStr += '🧭 ';
+    meta.textContent = metaStr || (t.done ? '已完成' : '未完成');
+    body.appendChild(meta);
+    var pct = document.createElement('span');
+    pct.className = 'pct';
+    if (t.done) pct.textContent = '100%';
+    else if (parseInt(t.progress, 10) > 0) pct.textContent = parseInt(t.progress, 10) + '%';
+    row.appendChild(check);
+    row.appendChild(body);
+    row.appendChild(pct);
+    row.addEventListener('click', function() { toggleTask(t.id); });
+    return row;
+  }
+
+  function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function() { t.style.display = 'none'; }, 2200);
+  }
+
+  // ═══════════════════════ 本地操作 ═══════════════════════
+  function bumpSeq() {
+    state.seq = (parseInt(state.seq, 10) || 0) + 1;
+  }
+  function saveTodosLocal() {
+    state.data.my_todo_list_v2 = JSON.stringify(todos);
+    bumpSeq();
+    saveCache(state);
+    render();
+    trySync();
+  }
+  function toggleTask(id) {
+    todos.forEach(function(t) {
+      if (t && t.id === id) {
+        t.done = !t.done;
+        if (t.done) t.progress = 100;
+        t.updatedAt = nowMs();
+      }
+    });
+    saveTodosLocal();
+    toast('已' + (todos.some(function(t) { return t.id === id && t.done; }) ? '完成' : '取消') + ' ✓');
+  }
+  function addTask() {
+    var inp = document.getElementById('newTodoInput');
+    var text = inp.value.trim();
+    if (!text) return;
+    todos.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: text, done: false, progress: 0, favorite: false, note: '', approach: '', updatedAt: nowMs() });
+    inp.value = '';
+    saveTodosLocal();
+    toast('已添加');
+  }
+
+  // ═══════════════════════ 冲突裁决合并 ═══════════════════════
+  function mergeTodoLists(baseRaw, incRaw) {
+    var base = []; var inc = [];
+    try { base = JSON.parse(baseRaw || '[]'); } catch(e) {}
+    try { inc = JSON.parse(incRaw || '[]'); } catch(e) {}
+    if (!Array.isArray(base)) base = [];
+    if (!Array.isArray(inc)) inc = [];
+    var byId = {};
+    base.forEach(function(t) { if (t && t.id) byId[t.id] = t; });
+    inc.forEach(function(t) {
+      if (!t || !t.id) return;
+      var old = byId[t.id];
+      var ua = (typeof t.updatedAt === 'number') ? t.updatedAt : 0;
+      var ub = (old && typeof old.updatedAt === 'number') ? old.updatedAt : 0;
+      if (!old || ua > ub) byId[t.id] = t;
+    });
+    return Object.keys(byId).map(function(k) { return byId[k]; });
+  }
+
+  // ═══════════════════════ 通道A：局域网直连 ═══════════════════════
+  var LAN_BASE = '';
+  function detectLanBase() {
+    // 自动探测电脑地址：优先用页面所在 host，回退常见网段
+    if (location.hostname && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1' && location.port === '8899') {
+      LAN_BASE = location.protocol + '//' + location.hostname + ':8899';
+      return true;
+    }
+    return false;
+  }
+
+  function trySync() {
+    // 连得上电脑：推送本地并拉取合并；连不上：静默（数据留在本地缓存）
+    if (!LAN_BASE) { setConn('offline'); return; }
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', LAN_BASE + '/api/sync', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.timeout = 4000;
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        setConn('online');
+        pullFromPc();  // 拉全量回合并
+      } else {
+        setConn('offline');
+      }
+    };
+    xhr.onerror = function() { setConn('offline'); };
+    xhr.ontimeout = function() { setConn('offline'); };
+    xhr.send(JSON.stringify({ __sync: true, __syncSeq: state.seq, __mobile: true, data: state.data }));
+  }
+
+  function pullFromPc() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', LAN_BASE + '/api/full', true);
+    xhr.timeout = 4000;
+    xhr.onload = function() {
+      if (xhr.status !== 200) return;
+      try {
+        var d = JSON.parse(xhr.responseText);
+        var remoteData = d.data || {};
+        var rseq = parseInt(d.seq, 10) || 0;
+        // 合并任务列表（逐任务 updatedAt 裁决）
+        var mergedTodos = mergeTodoLists(state.data.my_todo_list_v2, remoteData.my_todo_list_v2);
+        state.data.my_todo_list_v2 = JSON.stringify(mergedTodos);
+        // 其余 key：seq 高者覆盖（非任务类数据以电脑为权威，除非本地 seq 更高）
+        if (rseq > (parseInt(state.seq, 10) || 0)) {
+          Object.keys(remoteData).forEach(function(k) {
+            if (k !== 'my_todo_list_v2' && k !== '__syncSeq') state.data[k] = remoteData[k];
+          });
+        }
+        // 思路：合并（按日期键，较新者胜）
+        var localIdeas = loadIdeasStore();
+        var remoteIdeas = {};
+        try { remoteIdeas = JSON.parse(remoteData.my_ideas || '{}'); } catch(e) {}
+        Object.keys(remoteIdeas).forEach(function(k) {
+          var rv = remoteIdeas[k];
+          var lv = localIdeas[k];
+          var rt = (rv && rv.ts) || 0;
+          var lt = (lv && lv.ts) || 0;
+          if (!lv || rt > lt) localIdeas[k] = rv;
+        });
+        saveIdeasStore(localIdeas);
+        // 若拉取后本地 seq 落后，同步为远端 seq
+        if (rseq > (parseInt(state.seq, 10) || 0)) state.seq = rseq;
+        state.seq = parseInt(state.seq, 10) || 0;
+        saveCache(state);
+        render();
+      } catch(e) {}
+    };
+    xhr.send();
+  }
+
+  function setConn(mode) {
+    var el = document.getElementById('connStatus');
+    if (mode === 'online') { el.textContent = '已连接电脑'; el.className = 'status online'; }
+    else { el.textContent = '离线·本地缓存'; el.className = 'status offline'; }
+  }
+
+  // ═══════════════════════ 通道B：坚果云手动同步 ═══════════════════════
+  function loadCloudCfg() {
+    try { return JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); }
+    catch(e) { return null; }
+  }
+  function saveCloudCfg(c) {
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch(e) {}
+  }
+
+  function cloudGet(url, user, pwd) {
+    return new Promise(function(resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.setRequestHeader('Authorization', 'Basic ' + btoa(user + ':' + pwd));
+      xhr.timeout = 15000;
+      xhr.onload = function() {
+        if (xhr.status === 200) resolve(JSON.parse(xhr.responseText));
+        else if (xhr.status === 404) resolve(null); // 云端还没有文件
+        else reject('拉取失败 HTTP ' + xhr.status);
+      };
+      xhr.onerror = function() { reject('网络错误'); };
+      xhr.ontimeout = function() { reject('超时'); };
+      xhr.send();
+    });
+  }
+  function cloudPut(url, user, pwd, data) {
+    return new Promise(function(resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('PUT', url, true);
+      xhr.setRequestHeader('Authorization', 'Basic ' + btoa(user + ':' + pwd));
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.timeout = 15000;
+      xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject('上传失败 HTTP ' + xhr.status);
+      };
+      xhr.onerror = function() { reject('网络错误'); };
+      xhr.ontimeout = function() { reject('超时'); };
+      xhr.send(JSON.stringify(data));
+    });
+  }
+
+  function doCloudSync(mode) {
+    // mode: 'up' 上传 / 'down' 拉取合并
+    var url = document.getElementById('cloudUrl').value.trim();
+    var user = document.getElementById('cloudUser').value.trim();
+    var pwd = document.getElementById('cloudPwd').value;
+    if (!url || !user || !pwd) { toast('请先填写坚果云配置'); return; }
+    saveCloudCfg({ url: url, user: user, pwd: pwd });
+    toast(mode === 'up' ? '上传中…' : '拉取中…');
+    if (mode === 'up') {
+      // 先拉远端合并再上传，避免覆盖远端新数据
+      cloudGet(url, user, pwd).then(function(remote) {
+        if (remote && remote.data) {
+          var merged = mergeTodoLists(state.data.my_todo_list_v2, remote.data.my_todo_list_v2);
+          state.data.my_todo_list_v2 = JSON.stringify(merged);
+          saveCache(state);
+        }
+        var payload = { seq: state.seq, data: state.data, ideas: loadIdeasStore() };
+        return cloudPut(url, user, pwd, payload);
+      }).then(function() {
+        toast('已上传到坚果云 ✓');
+        render();
+      }).catch(function(e) { toast('上传失败：' + e); });
+    } else {
+      cloudGet(url, user, pwd).then(function(remote) {
+        if (!remote) { toast('云端还没有文件'); return; }
+        var rdata = remote.data || {};
+        var merged = mergeTodoLists(state.data.my_todo_list_v2, rdata.my_todo_list_v2);
+        state.data.my_todo_list_v2 = JSON.stringify(merged);
+        if ((parseInt(remote.seq, 10) || 0) > (parseInt(state.seq, 10) || 0)) {
+          Object.keys(rdata).forEach(function(k) {
+            if (k !== 'my_todo_list_v2' && k !== '__syncSeq') state.data[k] = rdata[k];
+          });
+          state.seq = parseInt(remote.seq, 10) || 0;
+        }
+        // 思路合并
+        var li = loadIdeasStore();
+        Object.keys(remote.ideas || {}).forEach(function(k) {
+          var rv = remote.ideas[k], lv = li[k];
+          if (!lv || (rv.ts || 0) > (lv.ts || 0)) li[k] = rv;
+        });
+        saveIdeasStore(li);
+        saveCache(state);
+        render();
+        toast('已从云端拉取合并 ✓');
+        trySync();
+      }).catch(function(e) { toast('拉取失败：' + e); });
+    }
+  }
+
+  // ═══════════════════════ 思路侧边栏（按日期分页） ═══════════════════════
+  var ideasCurrent = todayStr();
+  function ideasLoadPage(date) {
+    ideasCurrent = date;
+    var store = loadIdeasStore();
+    var rec = store[date];
+    document.getElementById('ideasTextarea').value = (rec && rec.text) ? rec.text : '';
+    document.getElementById('ideasDateLabel').textContent = date;
+    document.getElementById('ideasTip').textContent =
+      (rec && rec.ts) ? ('最后修改：' + fmtTime(rec.ts) + '（长按日期查看）') : '这一天还没有记录';
+    document.getElementById('ideasToday').style.opacity = (date === todayStr()) ? 0.5 : 1;
+  }
+  function ideasSavePage() {
+    var store = loadIdeasStore();
+    var val = document.getElementById('ideasTextarea').value;
+    if (!val.trim()) {
+      delete store[ideasCurrent];
+    } else {
+      var old = store[ideasCurrent];
+      store[ideasCurrent] = { text: val, ts: nowMs() };
+    }
+    saveIdeasStore(store);
+    // 同步到缓存并尝试推送电脑
+    state.data.my_ideas = JSON.stringify(store);
+    bumpSeq();  // 本地改动计数 +1
+    saveCache(state);
+    trySync();
+    ideasLoadPage(ideasCurrent);
+  }
+  function ideasShift(days) {
+    var d = new Date(ideasCurrent);
+    d.setDate(d.getDate() + days);
+    ideasLoadPage(d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()));
+  }
+  function openIdeas() {
+    document.getElementById('ideasDrawer').classList.add('show');
+    document.getElementById('ideasMask').classList.add('show');
+    ideasLoadPage(todayStr());
+  }
+  function closeIdeas() {
+    ideasSavePage();
+    document.getElementById('ideasDrawer').classList.remove('show');
+    document.getElementById('ideasMask').classList.remove('show');
+    render();
+  }
+
+  // ═══════════════════════ 事件绑定 ═══════════════════════
+  document.getElementById('addBtn').addEventListener('click', addTask);
+  document.getElementById('newTodoInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') addTask();
+  });
+  document.getElementById('syncBtn').addEventListener('click', function() {
+    var cfg = loadCloudCfg();
+    if (cfg) {
+      document.getElementById('cloudUrl').value = cfg.url || '';
+      document.getElementById('cloudUser').value = cfg.user || '';
+      document.getElementById('cloudPwd').value = cfg.pwd || '';
+    }
+    document.getElementById('cloudModal').classList.add('show');
+  });
+  document.getElementById('cloudUp').addEventListener('click', function() { doCloudSync('up'); });
+  document.getElementById('cloudDown').addEventListener('click', function() { doCloudSync('down'); });
+  document.getElementById('cloudClose').addEventListener('click', function() {
+    document.getElementById('cloudModal').classList.remove('show');
+  });
+  document.getElementById('ideasToggleBtn').addEventListener('click', openIdeas);
+  document.getElementById('ideasClose').addEventListener('click', closeIdeas);
+  document.getElementById('ideasMask').addEventListener('click', closeIdeas);
+  document.getElementById('ideasPrev').addEventListener('click', function() { ideasSavePage(); ideasShift(-1); });
+  document.getElementById('ideasNext').addEventListener('click', function() { ideasSavePage(); ideasShift(1); });
+  document.getElementById('ideasToday').addEventListener('click', function() { ideasSavePage(); ideasLoadPage(todayStr()); });
+  var ideasDebounce = null;
+  document.getElementById('ideasTextarea').addEventListener('input', function() {
+    clearTimeout(ideasDebounce);
+    ideasDebounce = setTimeout(ideasSavePage, 400);
+  });
+
+  // 长按日期标签看修改时间（配合 tip）
+  var dateLabel = document.getElementById('ideasDateLabel');
+  var pressTimer = null;
+  dateLabel.addEventListener('touchstart', function() {
+    pressTimer = setTimeout(function() {
+      var store = loadIdeasStore();
+      var rec = store[ideasCurrent];
+      toast(rec && rec.ts ? ('最后修改：' + fmtTime(rec.ts)) : '这一天还没有记录');
+    }, 500);
+  });
+  dateLabel.addEventListener('touchend', function() { clearTimeout(pressTimer); });
+  dateLabel.addEventListener('click', function() {
+    var store = loadIdeasStore();
+    var rec = store[ideasCurrent];
+    toast(rec && rec.ts ? ('最后修改：' + fmtTime(rec.ts)) : '这一天还没有记录');
+  });
+
+  // ═══════════════════════ 启动 ═══════════════════════
+  function init() {
+    detectLanBase();
+    // 若无法从 URL 推断电脑地址，尝试常见内网 IP 前缀探测
+    if (!LAN_BASE) {
+      // 手机浏览器打开的是手机版页面时，host 即为电脑 IP；本地 file:// 或 localhost 时回退
+      var host = location.hostname;
+      if (host && host !== 'localhost' && host !== '127.0.0.1' && host !== '') {
+        LAN_BASE = location.protocol + '//' + host + ':8899';
+      }
+    }
+    render();
+    setConn(LAN_BASE ? 'offline' : 'offline');
+    if (LAN_BASE) trySync();
+    syncTimer = setInterval(function() {
+      if (LAN_BASE) trySync();
+    }, 15000);  // 15s 探测一次连通性（离线改动会在此刻补同步）
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden && LAN_BASE) trySync();
+    });
+  }
+  init();
+})();
+</script>
+</body>
+</html>
