@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>待办 · 手机版</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<!-- PWA：添加到主屏幕变成 App（相对路径，Netlify/子路径均可部署） -->
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<meta name="theme-color" content="#5c6bc0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="待办">
+<style>
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body {
+  margin: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #f5f6fa; color: #333; max-width: 480px; margin: 0 auto; min-height: 100vh;
+}
+/* ── 顶部 ── */
+header {
+  background: linear-gradient(135deg, #5c6bc0, #3f51b5); color: #fff;
+  padding: 14px 16px 10px; position: sticky; top: 0; z-index: 10;
+  display: flex; justify-content: space-between; align-items: center;
+}
+header .title { font-size: 17px; font-weight: 700; }
+header .sub { font-size: 11px; opacity: .85; margin-top: 2px; }
+header .status { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: rgba(255,255,255,.18); cursor: pointer; white-space: nowrap; }
+header .status.offline { background: rgba(255,255,255,.18); }
+header .status.online { background: #4caf50; }
+header .status.syncing { background: #42a5f5; }
+header .status.pending { background: #fb8c00; }
+header .status.rate { background: #fb8c00; }
+header .status.error { background: #e53935; }
+/* ── 进度区 ── */
+.progress-card { background: #fff; margin: 10px 12px; border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+.progress-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
+.progress-top b { font-size: 20px; color: #3949ab; }
+.progress-bar { height: 8px; background: #e8e8e8; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #66bb6a, #4caf50); border-radius: 4px; transition: width .3s; }
+/* ── 区块 ── */
+.section { margin: 12px; }
+.section-title { font-size: 13px; color: #888; margin: 4px 2px 8px; font-weight: 600; }
+.task { display: flex; align-items: center; background: #fff; border-radius: 10px; padding: 12px 12px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; }
+.task .check { width: 26px; height: 26px; min-width: 26px; border: 2px solid #c5cae9; border-radius: 50%; margin-right: 10px; display: flex; align-items: center; justify-content: center; color: transparent; font-size: 15px; transition: all .15s; }
+.task.done .check { background: #4caf50; border-color: #4caf50; color: #fff; }
+.task .body { flex: 1; min-width: 0; }
+.task .text { font-size: 15px; line-height: 1.4; word-break: break-word; }
+.task.done .text { color: #bbb; text-decoration: line-through; }
+.task .meta { font-size: 12px; color: #999; margin-top: 3px; }
+.task .pct { font-size: 12px; color: #3949ab; font-weight: 600; margin-left: 6px; min-width: 36px; text-align: right; }
+.task .del { font-size: 16px; color: #ccc; margin-left: 4px; padding: 2px 6px; cursor: pointer; flex-shrink: 0; }
+.task .del:active { color: #e53935; }
+.empty { text-align: center; color: #aaa; font-size: 13px; padding: 18px 0; }
+/* ── 底部固定栏 ── */
+footer {
+  position: sticky; bottom: 0; background: #fff; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  display: flex; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,.06); z-index: 10;
+}
+footer input { flex: 1; height: 42px; border: 1px solid #ddd; border-radius: 10px; padding: 0 12px; font-size: 15px; outline: none; }
+footer button { height: 42px; border: none; border-radius: 10px; background: #5c6bc0; color: #fff; font-size: 15px; padding: 0 16px; }
+footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
+/* ── 思路侧边栏（底部抽屉） ── */
+.drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 90; display: none; }
+.drawer-mask.show { display: block; }
+.drawer {
+  position: fixed; left: 0; right: 0; bottom: 0; background: #fff; z-index: 95;
+  border-radius: 16px 16px 0 0; padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateY(100%); transition: transform .25s ease; max-height: 78vh; display: flex; flex-direction: column;
+}
+.drawer.show { transform: translateY(0); }
+.drawer-title { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 700; color: #3949ab; margin-bottom: 10px; }
+.drawer-title .close-btn { font-size: 18px; color: #999; padding: 4px 8px; }
+/* 思路抽屉：左编辑区 + 右侧日期列表（手动点击切换） */
+.ideas-body { flex: 1; display: flex; gap: 8px; min-height: 0; }
+.ideas-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.ideas-date-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ideas-date-row .date-label { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ideas-date-row .today { flex-shrink: 0; height: 32px; border: 1px solid #5c6bc0; border-radius: 8px; background: #5c6bc0; color: #fff; font-size: 13px; padding: 0 10px; }
+.ideas-date-row .today:disabled { opacity: 0.45; }
+.ideas-textarea { width: 100%; min-height: 180px; flex: 1; border: 1px solid #eee; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.7; outline: none; resize: none; font-family: inherit; box-sizing: border-box; }
+.ideas-side { width: 116px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid #eee; }
+.ideas-side-title { padding: 0 6px 6px; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
+.ideas-date-list { flex: 1; overflow-y: auto; }
+.ideas-date-item { padding: 6px; border-radius: 7px; cursor: pointer; }
+.ideas-date-item.active { background: #e8eaf6; }
+.ideas-date-item .d { font-size: 12px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ideas-date-item .t { font-size: 10px; color: #999; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ideas-date-item.active .d { color: #3949ab; font-weight: 600; }
+.ideas-date-item.active .t { color: #5c6bc0; }
+/* ── Gitee 同步弹窗 ── */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; display: none; align-items: center; justify-content: center; padding: 12px; }
+.modal.show { display: flex; }
+.modal-box { background: #fff; border-radius: 14px; padding: 18px; width: 94%; max-width: 420px; max-height: 86vh; overflow-y: auto; }
+.modal-box h3 { margin: 0 0 10px; font-size: 16px; }
+.modal-box p { font-size: 12px; color: #777; margin: 6px 0; line-height: 1.5; }
+.modal-box label { display: block; font-size: 12px; color: #666; margin: 9px 0 3px; }
+.modal-box input { width: 100%; height: 40px; border: 1px solid #ddd; border-radius: 8px; padding: 0 10px; margin: 0; font-size: 14px; }
+.modal-box .status-card { background: #f5f6fa; border-radius: 10px; padding: 10px 12px; margin: 8px 0 4px; font-size: 12px; color: #555; line-height: 1.7; }
+.modal-box .status-card b { color: #3949ab; }
+.modal-box .row { display: flex; gap: 8px; margin-top: 12px; }
+.modal-box .row button { flex: 1; height: 40px; border: none; border-radius: 8px; font-size: 13px; padding: 0 6px; }
+.modal-box .row .primary { background: #5c6bc0; color: #fff; }
+.modal-box .row .plain { background: #eee; color: #555; }
+.modal-box .row .danger { background: #fdecea; color: #c62828; }
+.modal-box .row.wrap { flex-wrap: wrap; }
+.modal-box .row.wrap button { flex: 1 1 46%; }
+.modal-box .hint { font-size: 11px; color: #999; margin: 4px 0 0; }
+/* ── 小提示 ── */
+.toast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.8); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 13px; z-index: 120; display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="title">📋 待办</div>
+    <div class="sub" id="todayLabel"></div>
+  </div>
+  <div class="status" id="connStatus">检测中…</div>
+</header>
+
+<div class="progress-card">
+  <div class="progress-top">
+    <span>总进度</span>
+    <b id="pctNum">0%</b>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="pctBar" style="width:0%"></div></div>
+  <div class="progress-top" style="margin-top:6px"><span style="color:#999">已完成</span><span id="doneLabel" style="color:#999">0 / 0 项</span></div>
+</div>
+
+<div class="section">
+  <div class="section-title">📅 今日任务</div>
+  <div id="todayList"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">🗂 全部待办</div>
+  <div id="allList"></div>
+</div>
+
+<div class="section" style="margin-top:-4px">
+  <div class="section-title">💡 思路整理 <span style="float:right" id="ideasToggleBtn">› 打开</span></div>
+  <div id="ideasSummary" class="empty">点上方"打开"记录思路（右侧日期列表）</div>
+</div>
+
+<footer>
+  <input id="newTodoInput" placeholder="输入新任务..." autocomplete="off">
+  <button id="addBtn">添加</button>
+  <button class="btn-secondary" id="syncBtn">☁️ 同步</button>
+</footer>
+
+<!-- 思路抽屉 -->
+<div class="drawer-mask" id="ideasMask"></div>
+<div class="drawer" id="ideasDrawer">
+  <div class="drawer-title">
+    💡 思路整理
+    <span class="close-btn" id="ideasClose">✕</span>
+  </div>
+  <div class="ideas-body">
+    <div class="ideas-main">
+      <div class="ideas-date-row">
+        <span class="date-label" id="ideasDateLabel"></span>
+        <button class="today" id="ideasToday">今天</button>
+      </div>
+      <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存到当前日期）"></textarea>
+    </div>
+    <div class="ideas-side">
+      <div class="ideas-side-title">日期 / 最后修改</div>
+      <div class="ideas-date-list" id="ideasDateList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Gitee 同步弹窗 -->
+<div class="modal" id="giteeModal">
+  <div class="modal-box">
+    <h3>☁️ Gitee 云同步</h3>
+    <p>手机在任何网络都能同步。数据保存在你的 Gitee 私有仓库，页面本身不存数据。</p>
+    <div class="status-card">
+      <div>状态：<b id="syncStateText">未配置</b></div>
+      <div>上次同步：<span id="syncLast">—</span></div>
+      <div>下次自动：<span id="syncNext">—</span></div>
+      <div id="syncErrorLine" style="display:none;color:#c62828">最近错误：<span id="syncError"></span></div>
+    </div>
+    <label>仓库（owner/repo）</label>
+    <input id="giteeRepo" placeholder="例如 lixiaobai2712/todo-data" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label>分支（留空自动识别，通常 master）</label>
+    <input id="giteeBranch" placeholder="master" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label>文件路径</label>
+    <input id="giteePath" placeholder="sync.json" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label>访问令牌（Gitee 私人令牌，projects 权限）</label>
+    <input id="giteeToken" type="password" placeholder="留空表示不修改已保存的令牌" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p class="hint">令牌只保存在本机浏览器，不会写入网页或仓库。泄露后请在 Gitee 立即撤销。</p>
+    <div class="row">
+      <button class="primary" id="giteeSaveTest">保存并测试</button>
+      <button class="plain" id="giteeSyncNow">立即同步</button>
+    </div>
+    <div class="row wrap">
+      <button class="plain" id="giteeInstall">安装到桌面</button>
+      <button class="plain" id="giteeExport">导出本地数据</button>
+      <button class="plain" id="giteeImportBtn">导入旧数据</button>
+      <button class="danger" id="giteeClear">清除令牌</button>
+    </div>
+    <div class="row"><button class="plain" style="width:100%" id="giteeClose">关闭</button></div>
+    <input type="file" id="giteeImportFile" accept=".json,application/json" style="display:none">
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  // ═══════════════════════ 常量与状态 ═══════════════════════
+  var LS_KEY = 'mobile_todo_cache_v1';   // 本地离线缓存（含全量数据+seq）
+  var CFG_KEY = 'mobile_gitee_cfg_v1';   // Gitee 配置缓存
+  var SYNC_STATE_KEY = 'mobile_sync_state_v1'; // 上次同步/限流状态
+  var IDEAS_KEY = 'mobile_ideas_v1';     // 思路（结构与网页版 my_ideas 一致）
+  var IDEAS_POS_KEY = 'mobile_ideas_pos'; // 记住手动选中的日期
+  var API_BASE = 'https://gitee.com/api/v5';
+  var DEFAULT_REPO = 'lixiaobai2712/todo-data';
+  var DEFAULT_BRANCH = 'master';
+  var OWNED_KEYS = ['my_todo_list_v2', 'my_deleted', 'my_ideas'];
+  var syncTimer = null;
+  var syncBusy = false;
+  var syncQueued = false;
+  var localDirty = false;
+  var localDirtyAt = 0;
+  var lastPushAt = 0;
+  var nextSyncAt = 0;
+  var changeSeq = 0;
+  var cloudCfg = null;
+  var syncState = {};
+  var installPrompt = null;
+  var ideasDebounce = null;
+
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function nowMs() { return Date.now(); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function fmtTime(ts) {
+    try {
+      var d = new Date(ts);
+      var hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+      if (d.toDateString() === new Date().toDateString()) return '今天 ' + hm;
+      return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm;
+    } catch(e) { return ''; }
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // 本地缓存 = { seq, data: {my_todo_list_v2, my_today_data, my_ideas, ...} }
+  function loadCache() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || '{"seq":0,"data":{}}'); }
+    catch(e) { return { seq: 0, data: {} }; }
+  }
+  function saveCache(c) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(c)); } catch(e) {}
+  }
+  function loadIdeasStore() {
+    try { return JSON.parse(localStorage.getItem(IDEAS_KEY) || '{}'); }
+    catch(e) { return {}; }
+  }
+  function saveIdeasStore(s) {
+    try { localStorage.setItem(IDEAS_KEY, JSON.stringify(s)); } catch(e) {}
+  }
+
+  var state = loadCache();
+  if (!state.data || typeof state.data !== 'object') state.data = {};
+  if (!state.data.my_deleted) state.data.my_deleted = '{}';  // 删除墓碑 {id: 删除时间戳}
+  if (!state.data.my_ideas) {
+    try { state.data.my_ideas = JSON.stringify(loadIdeasStore()); } catch(e) {}
+  }
+  state.seq = parseInt(state.seq, 10) || 0;
+  // remoteSeq 记录“已采纳过的远端版本”，与本地 seq 解耦：
+  // 本地编辑会让 seq 变大，但不应该阻止手机采纳电脑更新的今日任务/计划等 key。
+  state.remoteSeq = parseInt(state.remoteSeq, 10) || 0;
+  var todos = [];
+  function parseTodos() {
+    try { todos = JSON.parse(state.data.my_todo_list_v2 || '[]'); }
+    catch(e) { todos = []; }
+    if (!Array.isArray(todos)) todos = [];
+  }
+  function parseToday() {
+    try { return JSON.parse(state.data.my_today_data || '{}'); }
+    catch(e) { return {}; }
+  }
+
+  // ═══════════════════════ 渲染 ═══════════════════════
+  function render() {
+    parseTodos();
+    // 离线缓存里也可能残留已删任务，渲染前先按墓碑剔除
+    var delMap = parseDelMap(state.data.my_deleted);
+    if (Object.keys(delMap).length) {
+      var before = todos.length;
+      todos = applyTombstones(todos, delMap);
+      if (todos.length !== before) {
+        state.data.my_todo_list_v2 = JSON.stringify(todos);
+        saveCache(state);
+      }
+    }
+    var todayMap = parseToday();
+    var today = todayStr();
+    var todayIds = todayMap[today] || [];
+    var byId = {};
+    todos.forEach(function(t) { if (t && t.id) byId[t.id] = t; });
+    var todayTasks = todayIds.map(function(id) { return byId[id]; }).filter(Boolean);
+    var allDone = todos.filter(function(t) { return t.done; });
+    var total = todos.length;
+    var doneCount = allDone.length;
+    var pct = total ? Math.round(todos.reduce(function(s, t) { return s + (parseInt(t.progress, 10) || 0); }, 0) / total) : 0;
+
+    document.getElementById('todayLabel').textContent = '📅 ' + today;
+    document.getElementById('pctNum').textContent = pct + '%';
+    document.getElementById('pctBar').style.width = pct + '%';
+    document.getElementById('doneLabel').textContent = doneCount + ' / ' + total + ' 项';
+
+    // 今日区
+    var tl = document.getElementById('todayList');
+    tl.innerHTML = '';
+    if (!todayTasks.length) {
+      tl.innerHTML = '<div class="empty">今日暂无任务</div>';
+    } else {
+      todayTasks.forEach(function(t) { tl.appendChild(taskRow(t)); });
+    }
+
+    // 全部待办区（未完成的在前，已完成的置后置灰）
+    var al = document.getElementById('allList');
+    al.innerHTML = '';
+    if (!todos.length) {
+      al.innerHTML = '<div class="empty">还没有任务</div>';
+    } else {
+      var pending = todos.filter(function(t) { return !t.done; });
+      var doneList = todos.filter(function(t) { return t.done; });
+      pending.concat(doneList).forEach(function(t) { al.appendChild(taskRow(t)); });
+    }
+
+    // 思路摘要
+    var sum = document.getElementById('ideasSummary');
+    var store = loadIdeasStore();
+    var keys = Object.keys(store).filter(function(k) { return store[k] && store[k].text; }).sort().reverse();
+    if (keys.length) {
+      sum.innerHTML = '<span style="font-size:13px;color:#666">最近：' + escapeHtml(store[keys[0]].text.slice(0, 30)) + (store[keys[0]].text.length > 30 ? '…' : '') + '（' + keys[0] + '）</span>';
+    } else {
+      sum.innerHTML = '<div class="empty">点上方"打开"记录思路（右侧日期列表）</div>';
+    }
+  }
+
+  function taskRow(t) {
+    var row = document.createElement('div');
+    row.className = 'task' + (t.done ? ' done' : '');
+    row.dataset.id = t.id;
+    var check = document.createElement('span');
+    check.className = 'check';
+    check.textContent = t.done ? '✓' : '';
+    var body = document.createElement('span');
+    body.className = 'body';
+    var text = document.createElement('div');
+    text.className = 'text';
+    text.textContent = t.text || '(无标题)';
+    body.appendChild(text);
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+    var metaStr = '';
+    if (t.favorite) metaStr += '⭐ ';
+    if (t.note) metaStr += '📝 ';
+    if (t.approach) metaStr += '🧭 ';
+    meta.textContent = metaStr || (t.done ? '已完成' : '未完成');
+    body.appendChild(meta);
+    var pct = document.createElement('span');
+    pct.className = 'pct';
+    if (t.done) pct.textContent = '100%';
+    else if (parseInt(t.progress, 10) > 0) pct.textContent = parseInt(t.progress, 10) + '%';
+    var del = document.createElement('span');
+    del.className = 'del';
+    del.textContent = '✕';
+    del.addEventListener('click', function(e) {
+      e.stopPropagation();
+      deleteTask(t.id);
+    });
+    row.appendChild(check);
+    row.appendChild(body);
+    row.appendChild(pct);
+    row.appendChild(del);
+    row.addEventListener('click', function() { toggleTask(t.id); });
+    return row;
+  }
+
+  function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function() { t.style.display = 'none'; }, 2200);
+  }
+
+  // ═══════════════════════ 本地操作 ═══════════════════════
+  function bumpSeq() {
+    state.seq = (parseInt(state.seq, 10) || 0) + 1;
+    changeSeq++;
+  }
+  function saveTodosLocal() {
+    state.data.my_todo_list_v2 = JSON.stringify(todos);
+    bumpSeq();
+    saveCache(state);
+    render();
+    markLocalDirty();
+  }
+  function toggleTask(id) {
+    todos.forEach(function(t) {
+      if (t && t.id === id) {
+        t.done = !t.done;
+        if (t.done) t.progress = 100;
+        t.updatedAt = nowMs();
+      }
+    });
+    saveTodosLocal();
+    toast('已' + (todos.some(function(t) { return t.id === id && t.done; }) ? '完成' : '取消') + ' ✓');
+  }
+  function addTask() {
+    var inp = document.getElementById('newTodoInput');
+    var text = inp.value.trim();
+    if (!text) return;
+    todos.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text: text, done: false, progress: 0, favorite: false, note: '', approach: '', updatedAt: nowMs() });
+    inp.value = '';
+    saveTodosLocal();
+    toast('已添加');
+  }
+  function deleteTask(id) {
+    // 从本地移除 + 记录删除墓碑（跨端传播删除，防止被其他端旧数据"复活"）
+    var target = null;
+    todos.forEach(function(t) { if (t && t.id === id) target = t; });
+    todos = todos.filter(function(t) { return !(t && t.id === id); });
+    var delMap = {};
+    try { delMap = JSON.parse(state.data.my_deleted || '{}'); } catch(e) {}
+    delMap[id] = nowMs();
+    state.data.my_deleted = JSON.stringify(delMap);
+    saveTodosLocal();
+    toast('已删除' + (target ? '：' + target.text : ''));
+  }
+
+  // ═══════════════════════ 冲突裁决合并 ═══════════════════════
+  function mergeTodoLists(baseRaw, incRaw) {
+    var base = toList(baseRaw);
+    var inc = toList(incRaw);
+    var byId = {};
+    base.forEach(function(t) { if (t && t.id) byId[t.id] = t; });
+    inc.forEach(function(t) {
+      if (!t || !t.id) return;
+      var old = byId[t.id];
+      var ua = (typeof t.updatedAt === 'number') ? t.updatedAt : 0;
+      var ub = (old && typeof old.updatedAt === 'number') ? old.updatedAt : 0;
+      if (!old || ua > ub) byId[t.id] = t;
+    });
+    return Object.keys(byId).map(function(k) { return byId[k]; });
+  }
+
+  // ── 墓碑 / 思路合并工具 ──
+  function parseDelMap(raw) {
+    return toObj(raw);
+  }
+  function mergeDelMaps(a, b) {
+    var out = {};
+    Object.keys(a || {}).forEach(function(k) { out[k] = Number(a[k]) || 0; });
+    Object.keys(b || {}).forEach(function(k) {
+      var t = Number(b[k]) || 0;
+      if (!(k in out) || t > out[k]) out[k] = t;
+    });
+    return out;
+  }
+  function mergeIdeasInto(dst, src) {
+    Object.keys(src || {}).forEach(function(k) {
+      var rv = src[k], lv = dst[k];
+      if (!lv || ((rv && rv.ts) || 0) > ((lv && lv.ts) || 0)) dst[k] = rv;
+    });
+    return dst;
+  }
+  function applyTombstones(list, delMap) {
+    return list.filter(function(t) { return !(t && t.id in delMap); });
+  }
+  // 统一云端文件结构：兼容 {seq,data,ideas} 与旧版扁平格式
+  function normalizeCloudPayload(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    var data = null, seq = 0, ideas = {};
+    if (obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data)) {
+      data = obj.data;
+      seq = parseInt(obj.seq, 10) || parseInt(obj.data.__syncSeq, 10) || 0;
+      if (obj.ideas && typeof obj.ideas === 'object') ideas = obj.ideas;
+    } else if (typeof obj.my_todo_list_v2 === 'string' ||
+               Array.isArray(obj.my_todo_list_v2)) {
+      data = obj;
+      seq = parseInt(obj.__syncSeq, 10) || 0;
+    } else {
+      return null;
+    }
+    try { mergeIdeasInto(ideas, JSON.parse(data.my_ideas || '{}')); } catch(e) {}
+    return { seq: seq, data: data, ideas: ideas };
+  }
+
+  // ═══════════════════════ Gitee 云同步 ═══════════════════════
+  // 手机只维护三个 key，其余 key（今日映射/计划/工作日志等）由电脑维护。
+  // 远端与本地都做语义指纹比较，内容相同不写 Gitee，避免两端互推。
+
+  function timeHM(ts) {
+    try { var d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+    catch(e) { return '—'; }
+  }
+  function toList(v) {
+    if (Array.isArray(v)) return v;
+    try { var a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; }
+    catch(e) { return []; }
+  }
+  function toObj(v) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v;
+    try { var o = JSON.parse(v || '{}'); return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; }
+    catch(e) { return {}; }
+  }
+
+  // ── UTF-8 安全的 base64（中文/emoji 不能直接 btoa） ──
+  function bytesToB64(bytes) {
+    var out = '', chunk = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunk) {
+      out += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(out);
+  }
+  function b64ToBytes(b64) {
+    var bin = atob(String(b64 || '').replace(/\s/g, ''));
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+  }
+  function b64EncodeUtf8(str) { return bytesToB64(new TextEncoder().encode(str)); }
+  function b64DecodeUtf8(b64) { return new TextDecoder('utf-8').decode(b64ToBytes(b64)); }
+
+  // ── 稳定序列化 / 语义指纹 ──
+  function stableStringify(v) {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+    return '{' + Object.keys(v).sort().map(function(k) {
+      return JSON.stringify(k) + ':' + stableStringify(v[k]);
+    }).join(',') + '}';
+  }
+  function semanticValue(v) {
+    if (typeof v === 'string') {
+      try { return JSON.parse(v); } catch(e) { return v; }
+    }
+    return v;
+  }
+  function ownedFingerprint(data) {
+    var out = {};
+    OWNED_KEYS.forEach(function(k) {
+      var v = semanticValue(data[k]);
+      if (k === 'my_todo_list_v2' && Array.isArray(v)) {
+        var byId = {};
+        v.forEach(function(t) { if (t && t.id) byId[t.id] = t; });
+        v = Object.keys(byId).sort().map(function(id) { return byId[id]; });
+      }
+      out[k] = v;
+    });
+    return stableStringify(out);
+  }
+  function hasLocalData() {
+    if (toList(state.data.my_todo_list_v2).length) return true;
+    if (Object.keys(toObj(state.data.my_deleted)).length) return true;
+    var ideas = toObj(state.data.my_ideas);
+    return Object.keys(ideas).some(function(k) {
+      return ideas[k] && typeof ideas[k].text === 'string' && ideas[k].text.trim();
+    });
+  }
+
+  // ── 配置与状态 ──
+  function loadGiteeCfg() {
+    try {
+      var c = JSON.parse(localStorage.getItem(CFG_KEY) || 'null');
+      if (!c) return null;
+      c.path = c.path || 'sync.json';
+      c.apiBase = c.apiBase || API_BASE;
+      c.interval = Math.max(60, parseInt(c.interval, 10) || 120);
+      c.authMode = c.authMode || 'bearer';
+      return c;
+    } catch(e) { return null; }
+  }
+  function saveGiteeCfg(c) {
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch(e) {}
+    cloudCfg = c;
+  }
+  function loadSyncState() {
+    try { return JSON.parse(localStorage.getItem(SYNC_STATE_KEY) || '{}') || {}; }
+    catch(e) { return {}; }
+  }
+  function saveSyncState() {
+    try { localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(syncState)); } catch(e) {}
+  }
+  function validCfg(c) {
+    return !!(c && c.repo && /^[^\/\s]+\/[^\/\s]+$/.test(c.repo) && c.token);
+  }
+  function repoParts(cfg) {
+    var p = String(cfg.repo || '').split('/');
+    return { owner: p[0], name: p.slice(1).join('/') };
+  }
+  function contentsUrl(cfg) {
+    var r = repoParts(cfg);
+    var path = String(cfg.path || 'sync.json').replace(/^\/+/, '').split('/')
+      .map(encodeURIComponent).join('/');
+    return (cfg.apiBase || API_BASE) + '/repos/' +
+      encodeURIComponent(r.owner) + '/' + encodeURIComponent(r.name) +
+      '/contents/' + path;
+  }
+  function errText(e) {
+    if (!e) return '未知错误';
+    if (e.name === 'AbortError') return '请求超时';
+    if (e.kind === 'auth') return '令牌无效或已过期';
+    if (e.kind === 'permission') return '令牌没有仓库权限（需要 projects）';
+    if (e.kind === 'notfound') return '仓库/分支/文件不存在';
+    if (e.kind === 'rate') return '触发 Gitee 限流，请稍后再试';
+    if (e.kind === 'conflict') return '写入冲突，正在重试';
+    return e.message || '网络错误';
+  }
+  function giteeMessage(r) {
+    try {
+      var j = JSON.parse(r.text || '{}');
+      return j.message || j.error || ('HTTP ' + r.status);
+    } catch(e) { return 'HTTP ' + r.status; }
+  }
+  function isRateLimit(r) {
+    return r.status === 429 ||
+      (r.status === 403 && /rate|limit|频繁|超过|too many/i.test(giteeMessage(r)));
+  }
+  function giteeError(r) {
+    var msg = giteeMessage(r);
+    var kind = 'server';
+    if (r.status === 401) kind = 'auth';
+    else if (r.status === 403) kind = isRateLimit(r) ? 'rate' : 'permission';
+    else if (r.status === 404) kind = 'notfound';
+    else if (r.status === 429) kind = 'rate';
+    else if (r.status === 409 || r.status === 422 ||
+             (r.status === 400 && /sha|conflict|冲突/i.test(msg))) kind = 'conflict';
+    var e = new Error(msg);
+    e.kind = kind; e.status = r.status;
+    return e;
+  }
+
+  // ── Gitee Contents API ──
+  function giteeFetch(cfg, method, url, body, authMode) {
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = setTimeout(function() { if (ctrl) ctrl.abort(); }, 15000);
+    var headers = { 'Accept': 'application/json' };
+    var finalUrl = url;
+    if (authMode === 'query') {
+      finalUrl += (finalUrl.indexOf('?') >= 0 ? '&' : '?') +
+        'access_token=' + encodeURIComponent(cfg.token);
+    } else {
+      headers['Authorization'] = 'Bearer ' + cfg.token;
+    }
+    var opts = { method: method, headers: headers, cache: 'no-store' };
+    if (ctrl) opts.signal = ctrl.signal;
+    if (body) {
+      headers['Content-Type'] = 'application/json';
+      var b = {};
+      Object.keys(body).forEach(function(k) { b[k] = body[k]; });
+      if (authMode === 'query') b.access_token = cfg.token;
+      opts.body = JSON.stringify(b);
+    }
+    return fetch(finalUrl, opts).then(function(res) {
+      clearTimeout(timer);
+      return res.text().then(function(txt) { return { status: res.status, text: txt }; });
+    }).catch(function(e) {
+      clearTimeout(timer);
+      throw e;
+    });
+  }
+  function giteeRequest(cfg, method, url, body) {
+    var mode = cfg.authMode === 'query' ? 'query' : 'bearer';
+    return giteeFetch(cfg, method, url, body, mode).catch(function(e) {
+      // Bearer 的预检/网络失败时，用 query token 再试一次（也覆盖 401 回退）
+      if (mode === 'bearer') {
+        return giteeFetch(cfg, method, url, body, 'query').then(function(r2) {
+          if (r2.status !== 401) { cfg.authMode = 'query'; saveGiteeCfg(cfg); }
+          return r2;
+        });
+      }
+      throw e;
+    }).then(function(r) {
+      if (r.status === 401 && mode === 'bearer') {
+        return giteeFetch(cfg, method, url, body, 'query').then(function(r2) {
+          if (r2.status !== 401) { cfg.authMode = 'query'; saveGiteeCfg(cfg); }
+          return r2;
+        });
+      }
+      return r;
+    });
+  }
+  function giteeGetFile(cfg) {
+    var url = contentsUrl(cfg);
+    if (cfg.branch) url += '?ref=' + encodeURIComponent(cfg.branch);
+    return giteeRequest(cfg, 'GET', url).then(function(r) {
+      if (r.status === 404) return null;
+      if (r.status !== 200) throw giteeError(r);
+      var j = JSON.parse(r.text);
+      if (Array.isArray(j)) {
+        // Gitee 对不存在的路径会返回 200 + []（而不是 404）
+        if (j.length) throw new Error('云端路径是一个目录，请改成一个文件路径');
+        return null;
+      }
+      if (!j || !j.content) throw new Error('云端文件内容为空或过大');
+      var obj = JSON.parse(b64DecodeUtf8(j.content));
+      return { obj: obj, sha: j.sha, branch: j.branch || cfg.branch || '' };
+    });
+  }
+  function giteePutFile(cfg, obj, sha) {
+    var url = contentsUrl(cfg);
+    var body = {
+      content: b64EncodeUtf8(JSON.stringify(obj)),
+      message: 'todo sync: mobile ' + new Date().toISOString(),
+      branch: cfg.branch || 'master'
+    };
+    if (sha) body.sha = sha;
+    var method = sha ? 'PUT' : 'POST';
+    function ok(r) {
+      if (r.status === 200 || r.status === 201) return true;
+      throw giteeError(r);
+    }
+    return giteeRequest(cfg, method, url, body).then(function(r) {
+      if (r.status === 405) {
+        // 个别情况下创建/更新方法不同，互换再试一次
+        return giteeRequest(cfg, sha ? 'POST' : 'PUT', url, body).then(ok);
+      }
+      return ok(r);
+    });
+  }
+  function giteeRepoInfo(cfg) {
+    var r = repoParts(cfg);
+    var url = (cfg.apiBase || API_BASE) + '/repos/' +
+      encodeURIComponent(r.owner) + '/' + encodeURIComponent(r.name);
+    return giteeRequest(cfg, 'GET', url).then(function(res) {
+      if (res.status !== 200) throw giteeError(res);
+      return JSON.parse(res.text);
+    });
+  }
+  function ensureBranch(cfg) {
+    if (cfg.branch) return Promise.resolve(cfg.branch);
+    return giteeRepoInfo(cfg).then(function(info) {
+      cfg.branch = info.default_branch || 'master';
+      saveGiteeCfg(cfg);
+      return cfg.branch;
+    });
+  }
+
+  // ── 状态显示 ──
+  function updateStatus() {
+    var el = document.getElementById('connStatus');
+    if (!el) return;
+    var cfg = loadGiteeCfg();
+    var now = nowMs();
+    var mode = 'offline', text = '未配置 Gitee';
+    if (validCfg(cfg)) {
+      if (syncBusy) {
+        mode = 'syncing'; text = '同步中…';
+      } else if (syncState.lastError) {
+        if ((syncState.nextAllowedAt || 0) > now) {
+          var mins = Math.max(1, Math.ceil(((syncState.nextAllowedAt || 0) - now) / 60000));
+          mode = String(syncState.lastError).indexOf('限流') >= 0 ? 'rate' : 'error';
+          text = mode === 'rate' ? ('限流等待 ' + mins + ' 分钟') : '同步失败';
+        } else {
+          mode = 'error'; text = '同步失败';
+        }
+      } else if (localDirty) {
+        mode = 'pending'; text = '待同步';
+      } else if (syncState.lastAt) {
+        mode = 'online'; text = '已同步 ' + timeHM(syncState.lastAt);
+      } else {
+        mode = 'offline'; text = '已配置';
+      }
+    }
+    el.textContent = text;
+    el.className = 'status ' + mode;
+
+    var st = document.getElementById('syncStateText');
+    if (!st) return;
+    st.textContent = text;
+    document.getElementById('syncLast').textContent =
+      syncState.lastAt ? fmtTime(syncState.lastAt) : '—';
+    document.getElementById('syncNext').textContent =
+      (validCfg(cfg) && nextSyncAt) ? fmtTime(nextSyncAt) : '—';
+    var errLine = document.getElementById('syncErrorLine');
+    if (syncState.lastError) {
+      document.getElementById('syncError').textContent = syncState.lastError;
+      errLine.style.display = 'block';
+    } else {
+      errLine.style.display = 'none';
+    }
+  }
+
+  // ── 调度 ──
+  var dirtyTimer = null;
+  function markLocalDirty() {
+    localDirty = true;
+    localDirtyAt = nowMs();
+    updateStatus();
+    var cfg = loadGiteeCfg();
+    if (!validCfg(cfg)) return;
+    clearTimeout(dirtyTimer);
+    dirtyTimer = setTimeout(function() {
+      var wait = Math.max(0, 30000 - (nowMs() - lastPushAt));
+      if (wait > 0) {
+        dirtyTimer = setTimeout(function() { giteeSync(false); }, wait);
+      } else {
+        giteeSync(false);
+      }
+    }, 5000);
+  }
+  function scheduleAutoSync() {
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = null;
+    var cfg = loadGiteeCfg();
+    if (!validCfg(cfg)) { nextSyncAt = 0; updateStatus(); return; }
+    var interval = Math.max(60, parseInt(cfg.interval, 10) || 120) * 1000;
+    var delay = Math.round(interval * (0.9 + Math.random() * 0.2));
+    nextSyncAt = nowMs() + delay;
+    syncTimer = setTimeout(function() {
+      if (!document.hidden) giteeSync(false);
+      scheduleAutoSync();
+    }, delay);
+    updateStatus();
+  }
+
+  function flushIdeasIfDirty() {
+    var ta = document.getElementById('ideasTextarea');
+    var drawer = document.getElementById('ideasDrawer');
+    if (!ta || !drawer || !drawer.classList.contains('show')) return;
+    var store = loadIdeasStore();
+    var rec = store[ideasCurrent];
+    var cur = (rec && typeof rec.text === 'string') ? rec.text : '';
+    if (ta.value === cur) return;
+    if (!ta.value.trim()) delete store[ideasCurrent];
+    else store[ideasCurrent] = { text: ta.value, ts: nowMs() };
+    saveIdeasStore(store);
+    state.data.my_ideas = JSON.stringify(store);
+    saveCache(state);
+  }
+
+  function markSynced(startChange) {
+    if (changeSeq === startChange) localDirty = false;
+    syncState.lastAt = nowMs();
+    syncState.lastError = '';
+    syncState.nextAllowedAt = 0;
+    syncState.rateStep = 0;
+    saveSyncState();
+    updateStatus();
+  }
+  function handleSyncError(e, manual) {
+    var kind = e && e.kind;
+    var msg = errText(e);
+    syncState.lastError = msg;
+    if (kind === 'rate') {
+      var delays = [60, 120, 300, 600, 1200, 3600];
+      var step = Math.min(parseInt(syncState.rateStep, 10) || 0, delays.length - 1);
+      var sec = Math.round(delays[step] * (0.8 + Math.random() * 0.4));
+      syncState.rateStep = step + 1;
+      syncState.nextAllowedAt = nowMs() + sec * 1000;
+      syncState.lastError = '触发 Gitee 限流，约 ' + Math.ceil(sec / 60) + ' 分钟后再试';
+    } else if (kind === 'auth') {
+      syncState.nextAllowedAt = nowMs() + 10 * 60 * 1000;
+      syncState.lastError = '令牌无效或已过期，请在设置里重新填写';
+    } else if (kind === 'permission') {
+      syncState.nextAllowedAt = nowMs() + 10 * 60 * 1000;
+      syncState.lastError = '令牌没有仓库权限，需要勾选 projects';
+    }
+    saveSyncState();
+    if (manual) toast('同步失败：' + syncState.lastError);
+  }
+
+  function giteeSync(manual) {
+    var cfg = loadGiteeCfg();
+    if (!validCfg(cfg)) {
+      if (manual) toast('请先填写 Gitee 仓库和令牌');
+      updateStatus();
+      return Promise.resolve(false);
+    }
+    if (syncBusy) { syncQueued = true; return Promise.resolve(false); }
+    var now = nowMs();
+    if (!manual && (syncState.nextAllowedAt || 0) > now) {
+      updateStatus();
+      return Promise.resolve(false);
+    }
+    syncBusy = true;
+    syncQueued = false;
+    updateStatus();
+    var startChange = changeSeq;
+    var localNow = nowMs();
+    var attempts = 0;
+
+    function attempt() {
+      attempts++;
+      return ensureBranch(cfg).then(function() {
+        return giteeGetFile(cfg);
+      }).then(function(remote) {
+        var canon = remote ? normalizeCloudPayload(remote.obj) : null;
+        if (remote && !canon) {
+          throw new Error('云端文件格式无法识别，已保留本地数据');
+        }
+        var rd = canon ? (canon.data || {}) : {};
+        // 合并任务 + 墓碑（删除终局，不复活）
+        var delMap = mergeDelMaps(
+          parseDelMap(state.data.my_deleted),
+          parseDelMap(rd.my_deleted)
+        );
+        var mergedTodos = applyTombstones(
+          mergeTodoLists(state.data.my_todo_list_v2, rd.my_todo_list_v2),
+          delMap
+        );
+        state.data.my_todo_list_v2 = JSON.stringify(mergedTodos);
+        state.data.my_deleted = JSON.stringify(delMap);
+        // 合并思路（本地缓存 + 本地 state + 远端）
+        var li = loadIdeasStore();
+        mergeIdeasInto(li, toObj(state.data.my_ideas));
+        if (canon) mergeIdeasInto(li, canon.ideas || {});
+        saveIdeasStore(li);
+        state.data.my_ideas = JSON.stringify(li);
+        // 采纳电脑维护的非任务 key（手机不编辑它们）
+        var rseq = canon ? (parseInt(canon.seq, 10) || 0) : 0;
+        if (canon && rseq >= (parseInt(state.remoteSeq, 10) || 0)) {
+          Object.keys(rd).forEach(function(k) {
+            if (OWNED_KEYS.indexOf(k) >= 0 || k === '__syncSeq') return;
+            state.data[k] = rd[k];
+          });
+          state.remoteSeq = rseq;
+        }
+        saveCache(state);
+        render();
+        if (document.getElementById('ideasDrawer').classList.contains('show')) {
+          ideasRenderList();
+        }
+        // 以远端 data 为底，只覆盖手机负责的三个 key
+        var data = {};
+        if (canon) Object.keys(rd).forEach(function(k) { data[k] = rd[k]; });
+        OWNED_KEYS.forEach(function(k) { data[k] = state.data[k]; });
+        var seq = Math.max(parseInt(state.seq, 10) || 0, rseq);
+        data.__syncSeq = seq;
+        if (!remote && !hasLocalData()) {
+          state.seq = seq;
+          saveCache(state);
+          if (manual) toast('本地还没有数据，等待电脑首次上传');
+          markSynced(startChange);
+          return false;
+        }
+        if (remote && ownedFingerprint(rd) === ownedFingerprint(data)) {
+          state.seq = seq;
+          state.remoteSeq = Math.max(parseInt(state.remoteSeq, 10) || 0, rseq);
+          saveCache(state);
+          markSynced(startChange);
+          return true;
+        }
+        var payload = {
+          schema: 1,
+          seq: seq,
+          updatedAt: localNow,
+          data: data,
+          ideas: li,
+          my_todo_list_v2: data.my_todo_list_v2,
+          my_deleted: data.my_deleted,
+          my_ideas: data.my_ideas
+        };
+        return giteePutFile(cfg, payload, remote ? remote.sha : null).then(function() {
+          state.seq = seq;
+          state.remoteSeq = Math.max(parseInt(state.remoteSeq, 10) || 0, seq);
+          lastPushAt = nowMs();
+          saveCache(state);
+          markSynced(startChange);
+          return true;
+        });
+      }).catch(function(e) {
+        if (e && e.kind === 'conflict' && attempts < 3) {
+          return new Promise(function(res) {
+            setTimeout(res, 300 * attempts + Math.random() * 200);
+          }).then(attempt);
+        }
+        throw e;
+      });
+    }
+
+    return attempt().then(function(ok) {
+      syncBusy = false;
+      updateStatus();
+      if (manual) toast(ok ? '已同步 ✓' : '同步完成');
+      if (syncQueued) {
+        syncQueued = false;
+        setTimeout(function() { giteeSync(false); }, 500);
+      }
+      scheduleAutoSync();
+      return ok;
+    }).catch(function(e) {
+      syncBusy = false;
+      handleSyncError(e, manual);
+      updateStatus();
+      syncQueued = false;
+      scheduleAutoSync();
+      return false;
+    });
+  }
+
+  // ── 弹窗 / 配置 / 导入导出 ──
+  function openGiteeModal() {
+    var cfg = loadGiteeCfg() || {};
+    document.getElementById('giteeRepo').value = cfg.repo || DEFAULT_REPO;
+    document.getElementById('giteeBranch').value = cfg.branch || DEFAULT_BRANCH;
+    document.getElementById('giteePath').value = cfg.path || 'sync.json';
+    var tokenEl = document.getElementById('giteeToken');
+    tokenEl.value = '';
+    tokenEl.placeholder = cfg.token ? '已保存，留空则不修改' : 'Gitee 私人令牌（projects 权限）';
+    updateStatus();
+    document.getElementById('giteeModal').classList.add('show');
+  }
+  function saveCfgFromForm() {
+    var repo = document.getElementById('giteeRepo').value.trim();
+    var branch = document.getElementById('giteeBranch').value.trim();
+    var path = document.getElementById('giteePath').value.trim().replace(/^\/+/, '') || 'sync.json';
+    var token = document.getElementById('giteeToken').value.trim();
+    if (!/^[^\/\s]+\/[^\/\s]+$/.test(repo)) { toast('仓库格式应为 owner/repo'); return; }
+    var old = loadGiteeCfg() || {};
+    var cfg = {
+      repo: repo,
+      branch: branch,
+      path: path,
+      token: token || old.token || '',
+      interval: old.interval || 120,
+      apiBase: old.apiBase || API_BASE,
+      authMode: (token && token !== old.token) ? 'bearer' : (old.authMode || 'bearer')
+    };
+    if (!cfg.token) { toast('请填写访问令牌'); return; }
+    saveGiteeCfg(cfg);
+    document.getElementById('giteeToken').value = '';
+    document.getElementById('giteeToken').placeholder = '已保存，留空则不修改';
+    toast('正在测试连接…');
+    giteeRepoInfo(cfg).then(function(info) {
+      if (!cfg.branch) {
+        cfg.branch = info.default_branch || 'master';
+        saveGiteeCfg(cfg);
+        document.getElementById('giteeBranch').value = cfg.branch;
+      }
+      toast('连接成功 ✓');
+      return giteeSync(true);
+    }).catch(function(e) {
+      toast('连接失败：' + errText(e));
+      handleSyncError(e, false);
+    }).then(function() {
+      scheduleAutoSync();
+    });
+  }
+  function clearGiteeCfg() {
+    if (!confirm('确定清除本机保存的 Gitee 配置和令牌吗？本地任务数据不会被删除。')) return;
+    try { localStorage.removeItem(CFG_KEY); localStorage.removeItem(SYNC_STATE_KEY); } catch(e) {}
+    cloudCfg = null;
+    syncState = {};
+    nextSyncAt = 0;
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
+    if (dirtyTimer) { clearTimeout(dirtyTimer); dirtyTimer = null; }
+    document.getElementById('giteeRepo').value = DEFAULT_REPO;
+    document.getElementById('giteeBranch').value = DEFAULT_BRANCH;
+    document.getElementById('giteePath').value = 'sync.json';
+    document.getElementById('giteeToken').value = '';
+    document.getElementById('giteeToken').placeholder = 'Gitee 私人令牌（projects 权限）';
+    updateStatus();
+    toast('已清除 Gitee 配置');
+  }
+  function exportData() {
+    var payload = {
+      schema: 1,
+      exportedAt: new Date().toISOString(),
+      seq: state.seq,
+      data: state.data,
+      ideas: loadIdeasStore()
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'todo-mobile-backup-' + todayStr() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() {
+      try { URL.revokeObjectURL(a.href); a.remove(); } catch(e) {}
+    }, 1000);
+  }
+  function importData(file) {
+    var reader = new FileReader();
+    reader.onload = function() {
+      try {
+        var obj = JSON.parse(reader.result);
+        var canon = normalizeCloudPayload(obj);
+        if (!canon && obj && obj.data && typeof obj.data === 'object') {
+          canon = { seq: parseInt(obj.seq, 10) || 0, data: obj.data, ideas: obj.ideas || {} };
+        }
+        if (!canon) { toast('无法识别的备份文件'); return; }
+        var rd = canon.data || {};
+        var delMap = mergeDelMaps(
+          parseDelMap(state.data.my_deleted),
+          parseDelMap(rd.my_deleted)
+        );
+        var merged = applyTombstones(
+          mergeTodoLists(state.data.my_todo_list_v2, rd.my_todo_list_v2),
+          delMap
+        );
+        state.data.my_todo_list_v2 = JSON.stringify(merged);
+        state.data.my_deleted = JSON.stringify(delMap);
+        var li = loadIdeasStore();
+        mergeIdeasInto(li, toObj(rd.my_ideas));
+        mergeIdeasInto(li, canon.ideas || {});
+        saveIdeasStore(li);
+        state.data.my_ideas = JSON.stringify(li);
+        if (canon.seq > (parseInt(state.remoteSeq, 10) || 0)) {
+          Object.keys(rd).forEach(function(k) {
+            if (OWNED_KEYS.indexOf(k) >= 0 || k === '__syncSeq') return;
+            state.data[k] = rd[k];
+          });
+          state.remoteSeq = canon.seq;
+        }
+        bumpSeq();
+        saveCache(state);
+        render();
+        markLocalDirty();
+        toast('导入完成，正在同步…');
+      } catch(e) {
+        toast('导入失败：文件格式不正确');
+      }
+    };
+    reader.readAsText(file);
+  }
+  function installApp() {
+    if (installPrompt) {
+      installPrompt.prompt();
+      installPrompt.userChoice.then(function() { installPrompt = null; });
+    } else {
+      toast('请用 Chrome 菜单 →「安装应用 / 添加到主屏幕」');
+    }
+  }
+
+  // ══════════════════ 思路侧边栏（右侧日期列表，手动切换） ══════════════════
+  var ideasCurrent = todayStr();
+
+  // 今天固定第一行，其余有记录的日期倒序；同一天只出现一次
+  function ideasRenderList() {
+    var el = document.getElementById('ideasDateList');
+    if (!el) return;
+    var store = loadIdeasStore();
+    var today = todayStr();
+    var dates = Object.keys(store).filter(function(d) {
+      return store[d] && typeof store[d].text === 'string' && store[d].text.trim() !== '';
+    }).filter(function(d) { return d !== today; }).sort().reverse();
+    dates.unshift(today);
+    var html = '';
+    dates.forEach(function(d) {
+      var rec = store[d];
+      var isToday = (d === today);
+      html += '<div class="ideas-date-item' + (d === ideasCurrent ? ' active' : '') +
+              '" data-date="' + escapeHtml(d) + '">' +
+                '<div class="d">' + (isToday ? '今天' : escapeHtml(d)) + '</div>' +
+                '<div class="t">' + escapeHtml(rec && rec.ts ? fmtTime(rec.ts) : '未记录') + '</div>' +
+              '</div>';
+    });
+    el.innerHTML = html;
+    var active = el.querySelector('.ideas-date-item.active');
+    if (active && active.scrollIntoView) {
+      try { active.scrollIntoView({ block: 'nearest' }); } catch(e) {}
+    }
+  }
+
+  function ideasLoadPage(date) {
+    ideasCurrent = date;
+    var store = loadIdeasStore();
+    var rec = store[date];
+    document.getElementById('ideasTextarea').value = (rec && rec.text) ? rec.text : '';
+    var isToday = (date === todayStr());
+    document.getElementById('ideasDateLabel').textContent = isToday ? ('今天 · ' + date) : date;
+    document.getElementById('ideasToday').disabled = isToday;
+    try { localStorage.setItem(IDEAS_POS_KEY, date); } catch(e) {}
+    ideasRenderList();
+  }
+
+  function ideasSavePage() {
+    // 始终保存到当前选中的日期，编辑旧记录不会新建日期
+    var store = loadIdeasStore();
+    var val = document.getElementById('ideasTextarea').value;
+    if (!val.trim()) {
+      delete store[ideasCurrent];
+    } else {
+      store[ideasCurrent] = { text: val, ts: nowMs() };
+    }
+    saveIdeasStore(store);
+    // 同步到缓存并尝试推送电脑
+    state.data.my_ideas = JSON.stringify(store);
+    bumpSeq();  // 本地改动计数 +1
+    saveCache(state);
+    markLocalDirty();
+    ideasRenderList();
+  }
+
+  function openIdeas() {
+    document.getElementById('ideasDrawer').classList.add('show');
+    document.getElementById('ideasMask').classList.add('show');
+    // 恢复上次手动选中的日期，而不是每次都跳回今天
+    var pos = null;
+    try { pos = localStorage.getItem(IDEAS_POS_KEY); } catch(e) {}
+    var store = loadIdeasStore();
+    if (!pos || (pos !== todayStr() &&
+        !(store[pos] && typeof store[pos].text === 'string' && store[pos].text.trim()))) {
+      pos = todayStr();
+    }
+    ideasLoadPage(pos);
+  }
+
+  function closeIdeas() {
+    ideasSavePage();
+    document.getElementById('ideasDrawer').classList.remove('show');
+    document.getElementById('ideasMask').classList.remove('show');
+    render();
+  }
+
+  // ═══════════════════════ 事件绑定 ═══════════════════════
+  document.getElementById('addBtn').addEventListener('click', addTask);
+  document.getElementById('newTodoInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') addTask();
+  });
+  document.getElementById('syncBtn').addEventListener('click', openGiteeModal);
+  document.getElementById('connStatus').addEventListener('click', openGiteeModal);
+  document.getElementById('giteeSaveTest').addEventListener('click', saveCfgFromForm);
+  document.getElementById('giteeSyncNow').addEventListener('click', function() { giteeSync(true); });
+  document.getElementById('giteeInstall').addEventListener('click', installApp);
+  document.getElementById('giteeExport').addEventListener('click', exportData);
+  document.getElementById('giteeImportBtn').addEventListener('click', function() {
+    document.getElementById('giteeImportFile').click();
+  });
+  document.getElementById('giteeImportFile').addEventListener('change', function(e) {
+    var f = e.target.files && e.target.files[0];
+    if (f) importData(f);
+    e.target.value = '';
+  });
+  document.getElementById('giteeClear').addEventListener('click', clearGiteeCfg);
+  document.getElementById('giteeClose').addEventListener('click', function() {
+    document.getElementById('giteeModal').classList.remove('show');
+  });
+  document.getElementById('ideasToggleBtn').addEventListener('click', openIdeas);
+  document.getElementById('ideasClose').addEventListener('click', closeIdeas);
+  document.getElementById('ideasMask').addEventListener('click', closeIdeas);
+  document.getElementById('ideasToday').addEventListener('click', function() {
+    ideasSavePage();
+    ideasLoadPage(todayStr());
+  });
+  // 右侧日期列表：点击手动切换，切换前先存档当前页
+  document.getElementById('ideasDateList').addEventListener('click', function(e) {
+    var item = e.target.closest('.ideas-date-item');
+    if (!item) return;
+    var date = item.dataset.date;
+    if (!date || date === ideasCurrent) return;
+    ideasSavePage();
+    ideasLoadPage(date);
+  });
+  document.getElementById('ideasTextarea').addEventListener('input', function() {
+    clearTimeout(ideasDebounce);
+    ideasDebounce = setTimeout(ideasSavePage, 400);
+  });
+
+  // ═══════════════════════ 启动 ═══════════════════════
+  function registerSW() {
+    // 相对路径注册，Netlify 根路径或子路径部署都能工作
+    try {
+      if ('serviceWorker' in navigator &&
+          (location.protocol === 'https:' || location.hostname === 'localhost' ||
+           location.hostname === '127.0.0.1')) {
+        navigator.serviceWorker.register('./sw.js').catch(function(e) {});
+      }
+    } catch(e) {}
+  }
+
+  function init() {
+    cloudCfg = loadGiteeCfg();
+    syncState = loadSyncState();
+    var now = nowMs();
+    // 上次限流/令牌错误还没到重试时间，先不请求
+    var canSync = validCfg(cloudCfg) &&
+      !((syncState.nextAllowedAt || 0) > now);
+    registerSW();
+    render();
+    updateStatus();
+    if (validCfg(cloudCfg)) {
+      if (canSync) {
+        setTimeout(function() {
+          if (!document.hidden) giteeSync(false);
+        }, 800);
+      }
+      scheduleAutoSync();
+    }
+    setInterval(updateStatus, 30000);
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        if (validCfg(loadGiteeCfg())) {
+          giteeSync(false);
+          scheduleAutoSync();
+        }
+        updateStatus();
+      } else if (localDirty && validCfg(loadGiteeCfg())) {
+        // 隐藏前还有未推送的改动，尝试补一次
+        giteeSync(false);
+      }
+    });
+    window.addEventListener('online', function() {
+      if (validCfg(loadGiteeCfg())) giteeSync(false);
+    });
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      installPrompt = e;
+    });
+  }
+  init();
+})();
+</script>
+</body>
+</html>

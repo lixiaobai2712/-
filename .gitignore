@@ -6,10 +6,14 @@ build/
 dist/
 *.spec
 
+# Python 缓存
+__pycache__/
+*.pyc
+
 # 桌面悬浮球产物（本地运行文件，不入库）
 todo_tray.exe
 
-# 本地数据（含个人待办与坚果云凭据，绝不入库）
+# 本地数据（含个人待办与 Gitee 令牌，绝不入库）
 todo_sync.json
 todo_pull.json
 todo_ball_pos.json

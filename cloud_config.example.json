@@ -1,0 +1,12 @@
+{
+  "provider": "gitee",
+  "repo": "your-name/todo-data",
+  "branch": "master",
+  "path": "sync.json",
+  "token": "在这里填 Gitee 私人令牌（权限勾选 projects）",
+  "interval": 120,
+  "enabled": true,
+  "api_base": "https://gitee.com/api/v5",
+  "auth_mode": "bearer",
+  "web_url": "https://your-site.netlify.app"
+}

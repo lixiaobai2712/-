@@ -13,37 +13,59 @@
 运行 `todo_tray.exe`（桌面右下角阿米娅悬浮球）后：
 
 - 悬浮球左键点击 → 弹出小窗查看今日任务/全部待办/进度，可直接勾选、滚轮滚动
-- 悬浮球右键 → 查看待办 / 打开待办页面 / **手机版地址** / **云端上传 / 云端下载** / 退出
+- 悬浮球右键 → 查看待办 / 打开待办页面 / **手机版网址** / **立即云同步** / **Gitee 同步设置…** / **开机自启** / 退出
 - 网页与悬浮球通过 `127.0.0.1:8899` 双向同步（网页 8s 轮询）
 
-### 📱 手机版
-- 手机连上**同一 WiFi**，浏览器打开 `http://<电脑IP>:8899/mobile`（电脑 IP 见悬浮球右键「手机版地址」）
-- 手机端支持：任务勾选/新增/**删除**/进度、思路侧边栏（按日期分页 + 修改时间）
-- 删除任务跨端同步（墓碑机制）：任一端删除，其他端同步消失，不会复活
-- 不在同一 WiFi 时，手机改动**只保留在本地**，连上后自动补同步
-- 不同网络时用坚果云手动同步（手机版「☁️ 同步」按钮，或悬浮球右键「云端上传/下载」）
+### ☁️ 手机版（Gitee + Netlify，推荐）
+
+校园网/公司网常开启终端隔离，手机和电脑互相访问不了。现在手机端不再依赖电脑在线：
+
+```
+手机 PWA（Netlify HTTPS） ⇄ Gitee 私有仓库 sync.json ⇄ 电脑悬浮球
+```
+
+**第一次使用需要手动准备（只做一次）：**
+
+1. **Gitee**：登录 [gitee.com](https://gitee.com) → 新建**私有仓库**（如 `todo-data`，勾选“使用 Readme 初始化”，默认分支通常为 `master`）。
+2. **令牌**：[个人访问令牌](https://gitee.com/profile/personal_access_tokens/new) → 名称随意（如 `todo-sync`）→ 权限只勾 **projects** → 生成并复制（只显示一次）。
+3. **Netlify**：打开 [Netlify Drop](https://app.netlify.com/drop)，把项目里的 **`docs` 文件夹**整个拖进去 → 得到 `https://xxx.netlify.app`。建议先在 Site settings 里改成固定名字，再安装 App。
+4. **电脑**：右键悬浮球 →「☁️ Gitee 同步设置…」→ 填仓库 `owner/repo`、令牌、Netlify 网址 →「保存并测试」→「立即同步」。再勾选「🚀 开机自启」。
+5. **手机**：Chrome 打开 Netlify 网址 → 右上「☁️ 云同步」→ 填同一个仓库和令牌 → 保存并测试 → 立即同步。
+6. **安装到桌面**：Chrome 菜单 →「安装应用 / 添加到主屏幕」。从桌面图标打开即为独立窗口。
+
+同步是自动的：电脑默认每 120 秒、手机在前台时每 120 秒检查一次；本地改动会稍后自动推送。电脑关机时手机照样能增删改，联网后补同步。
+
+> ⚠️ 令牌等同于仓库密码：**不要发到聊天、不要提交到 git、不要写进网页文件**。它只保存在电脑的 `cloud_config.json`（已 gitignore）和手机浏览器 localStorage 中；怀疑泄露可在 Gitee 立即撤销。
+
+### 📱 局域网备用访问
+
+同一 WiFi 且没有终端隔离时，也可以直接打开 `http://<电脑IP>:8899/mobile`（IP 见悬浮球右键「手机版网址」）。页面内容和 Netlify 版完全一致，同样走 Gitee 同步。
 
 ### 📲 手机版变成 App（PWA）
-- 手机浏览器打开待办页面后，浏览器菜单选**「添加到主屏幕 / 添加到桌面」**
-- 桌面会生成「待办」图标，点开全屏运行，和独立 App 一样
-- Android（Chrome）：菜单「添加到主屏幕」；iOS（Safari）：分享按钮 →「添加到主屏幕」
-- 页面已带 PWA 配置（manifest + 图标），无需安装任何东西
 
-### ☁️ 坚果云同步（可选，方案B）
-1. 注册坚果云账号，网页版新建文件夹（如 `待办同步`）
-2. 账户信息 → 安全选项 → 生成**应用授权码**（非登录密码）
-3. 填入 `cloud_config.json`（url 需 URL 编码中文路径；未配置时点同步只会提示，不影响本地使用）
-4. 同一 WiFi 的自动同步是方案A，坚果云是不同网络时的手动兜底（方案B）
+- Android Chrome：菜单「安装应用」或「添加到主屏幕」
+- iOS Safari：分享按钮 →「添加到主屏幕」
+- 已带 manifest + Service Worker：断网也能打开页面、查看和编辑本地数据
 
 ### 🔄 冲突裁决
+
 - 全局单调计数器 `syncSeq` 优先，任务级 `updatedAt` 时间戳兜底
 - 任务逐条合并取较新者，思路按日期 `ts` 合并
-- 手机端离线期间的改动在重连后自动合并，不会丢失
+- 删除使用墓碑（tombstone），删除终局，不会复活
+- 手机只负责任务/墓碑/思路三个 key，电脑的今日映射、计划、工作日志不会被手机旧快照覆盖
+- 两端内容语义相同就**不写 Gitee**，避免互相回环刷提交
 
-### 🔧 重新打包（改过 todo_tray.py 后）
+### ⚙️ 配置参考
+
+真实配置由设置窗写入 `cloud_config.json`（不入库）；字段说明见 [`cloud_config.example.json`](cloud_config.example.json)。
+
+### 🔧 重新打包（改过 todo_tray.py 或 docs/ 后）
+
 ```bash
-pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为修改.ico" --add-data "可爱的阿米娅-人为修改.ico;." todo_tray.py
+pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为修改.ico" --add-data "可爱的阿米娅-人为修改.ico;." --add-data "docs;docs" todo_tray.py
 ```
+
+`todo.html` 不打进 exe，仍需放在 exe 同目录（方便直接改内容）。
 
 ## 界面布局
 
@@ -141,6 +163,9 @@ pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为�
 - 纯 HTML + CSS + JavaScript（ES5 兼容）
 - 无框架、无依赖、无构建工具
 - localStorage 持久化
+- PWA：manifest + Service Worker，可安装到手机主屏幕、离线打开
+- Gitee Contents API（HTTPS + 私有仓库 + 个人令牌）负责跨网络同步
+- 电脑端：Python + tkinter + pystray + 标准库 HTTP 服务
 - Flexbox + Grid 响应式布局
 - HTML5 Drag & Drop + Touch Events
 
