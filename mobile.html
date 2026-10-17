@@ -47,6 +47,8 @@ header .status.online { background: #4caf50; }
 .task.done .text { color: #bbb; text-decoration: line-through; }
 .task .meta { font-size: 12px; color: #999; margin-top: 3px; }
 .task .pct { font-size: 12px; color: #3949ab; font-weight: 600; margin-left: 6px; min-width: 36px; text-align: right; }
+.task .del { font-size: 16px; color: #ccc; margin-left: 4px; padding: 2px 6px; cursor: pointer; flex-shrink: 0; }
+.task .del:active { color: #e53935; }
 .empty { text-align: center; color: #aaa; font-size: 13px; padding: 18px 0; }
 /* ── 底部固定栏 ── */
 footer {
@@ -207,6 +209,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   }
 
   var state = loadCache();
+  if (!state.data.my_deleted) state.data.my_deleted = '{}';  // 删除墓碑 {id: 删除时间戳}
   var todos = [];
   function parseTodos() {
     try { todos = JSON.parse(state.data.my_todo_list_v2 || '[]'); }
@@ -293,9 +296,17 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     pct.className = 'pct';
     if (t.done) pct.textContent = '100%';
     else if (parseInt(t.progress, 10) > 0) pct.textContent = parseInt(t.progress, 10) + '%';
+    var del = document.createElement('span');
+    del.className = 'del';
+    del.textContent = '✕';
+    del.addEventListener('click', function(e) {
+      e.stopPropagation();
+      deleteTask(t.id);
+    });
     row.appendChild(check);
     row.appendChild(body);
     row.appendChild(pct);
+    row.appendChild(del);
     row.addEventListener('click', function() { toggleTask(t.id); });
     return row;
   }
@@ -338,6 +349,18 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     inp.value = '';
     saveTodosLocal();
     toast('已添加');
+  }
+  function deleteTask(id) {
+    // 从本地移除 + 记录删除墓碑（跨端传播删除，防止被其他端旧数据"复活"）
+    var target = null;
+    todos.forEach(function(t) { if (t && t.id === id) target = t; });
+    todos = todos.filter(function(t) { return !(t && t.id === id); });
+    var delMap = {};
+    try { delMap = JSON.parse(state.data.my_deleted || '{}'); } catch(e) {}
+    delMap[id] = nowMs();
+    state.data.my_deleted = JSON.stringify(delMap);
+    saveTodosLocal();
+    toast('已删除' + (target ? '：' + target.text : ''));
   }
 
   // ═══════════════════════ 冲突裁决合并 ═══════════════════════
@@ -402,6 +425,16 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
         var rseq = parseInt(d.seq, 10) || 0;
         // 合并任务列表（逐任务 updatedAt 裁决）
         var mergedTodos = mergeTodoLists(state.data.my_todo_list_v2, remoteData.my_todo_list_v2);
+        // 应用删除墓碑：任何端删除的任务，其他端一律剔除（删除终局，不复活）
+        var delMap = {};
+        try { delMap = JSON.parse(state.data.my_deleted || '{}'); } catch(e) {}
+        var rDelMap = {};
+        try { rDelMap = JSON.parse(remoteData.my_deleted || '{}'); } catch(e) {}
+        Object.keys(rDelMap).forEach(function(k) {
+          if (!(k in delMap) || rDelMap[k] > delMap[k]) delMap[k] = rDelMap[k];
+        });
+        mergedTodos = mergedTodos.filter(function(t) { return !(t && t.id in delMap); });
+        state.data.my_deleted = JSON.stringify(delMap);
         state.data.my_todo_list_v2 = JSON.stringify(mergedTodos);
         // 其余 key：seq 高者覆盖（非任务类数据以电脑为权威，除非本地 seq 更高）
         if (rseq > (parseInt(state.seq, 10) || 0)) {

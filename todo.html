@@ -1570,6 +1570,7 @@ body {
   var DATE_KEY = 'my_date_notes';
   var TODAY_KEY = 'my_today_data';
   var MODE_KEY = 'my_today_mode';
+  var DELETED_KEY = 'my_deleted';   // 删除墓碑 {任务id: 删除时间戳}，跨端传播删除
 
   var todos = [];
   var dateNotes = [];
@@ -1885,6 +1886,12 @@ body {
 
   function deleteTodo(index) {
     var taskId = todos[index].id;
+    // 记录删除墓碑（跨端传播删除，防止手机端旧数据把已删任务"复活"）
+    try {
+      var delMap = JSON.parse(localStorage.getItem(DELETED_KEY) || '{}');
+      delMap[taskId] = Date.now();
+      localStorage.setItem(DELETED_KEY, JSON.stringify(delMap));
+    } catch(e) {}
     // 清理所有日期的今日数据
     Object.keys(todayData).forEach(function(date) {
       var arr = todayData[date];
@@ -3716,7 +3723,7 @@ body {
   // 收集所有需要同步的 localStorage 数据
   function collectTrayPayload() {
     var keys = [TODO_KEY, DATE_KEY, PLAN_KEY, TODAY_KEY, MODE_KEY, PLAN_MODE_KEY,
-                WORKLOG_KEY, TOMORROW_KEY, TOMORROW_DISMISS, SCHEDULE_KEY, IDEAS_KEY];
+                WORKLOG_KEY, TOMORROW_KEY, TOMORROW_DISMISS, SCHEDULE_KEY, IDEAS_KEY, DELETED_KEY];
     var payload = {};
     keys.forEach(function(k) {
       try {
@@ -3783,6 +3790,7 @@ body {
 
   function pullIdeasFromTray() {
     // 拉取服务端思路（手机端写的思路同步到电脑网页侧边栏），按日期 ts 合并
+    // 同时拉取服务端删除墓碑，剔除本地已删除任务（手机端删除 → 电脑消失）
     try {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', TRAY_FULL_URL, true);
@@ -3791,7 +3799,9 @@ body {
         if (xhr.status !== 200) return;
         try {
           var d = JSON.parse(xhr.responseText);
-          var remote = JSON.parse((d.data && d.data.my_ideas) || '{}');
+          var ddata = d.data || {};
+          // ── 思路合并
+          var remote = JSON.parse(ddata.my_ideas || '{}');
           var local = JSON.parse(localStorage.getItem(IDEAS_KEY) || '{}');
           var changed = false;
           Object.keys(remote).forEach(function(date) {
@@ -3805,6 +3815,27 @@ body {
             localStorage.setItem(IDEAS_KEY, JSON.stringify(local));
             safeCall(function() { ideasLoadPage(ideasCurrentDate); }, 'pull-ideas');
           }
+          // ── 删除墓碑：任何端删除的任务，电脑端一律剔除
+          try {
+            var rDel = JSON.parse(ddata.my_deleted || '{}');
+            var lDel = JSON.parse(localStorage.getItem(DELETED_KEY) || '{}');
+            var delChanged = false;
+            Object.keys(rDel).forEach(function(id) {
+              if (!(id in lDel) || rDel[id] > lDel[id]) { lDel[id] = rDel[id]; delChanged = true; }
+            });
+            if (delChanged) {
+              localStorage.setItem(DELETED_KEY, JSON.stringify(lDel));
+              var before = todos.length;
+              todos = todos.filter(function(t) { return !(t && t.id in lDel); });
+              if (todos.length !== before) {
+                saveTodos();
+                safeCall(renderTodos, 'pull-del-renderTodos');
+                safeCall(updateSummary, 'pull-del-updateSummary');
+                safeCall(updateGlobal, 'pull-del-updateGlobal');
+                syncToTray(); // 立即回推（带墓碑），让服务端收敛
+              }
+            }
+          } catch(e) {}
         } catch(e) {}
       };
       xhr.onerror = function() {};

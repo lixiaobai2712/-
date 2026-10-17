@@ -161,6 +161,10 @@ def merge_data(incoming):
         # 任务列表：逐任务 updatedAt 合并（较新者胜）
         new_todos = merge_todo_lists(local.get('my_todo_list_v2'),
                                      incoming.get('my_todo_list_v2'))
+        # 删除墓碑：合并 {id: 删除ts} 取较新，并从任务列表剔除（删除终局，不复活）
+        del_map = _merge_deleted(local.get('my_deleted'), incoming.get('my_deleted'))
+        new_todos = _apply_deleted(new_todos, del_map)
+        local['my_deleted'] = json.dumps(del_map, ensure_ascii=False)
         local['my_todo_list_v2'] = json.dumps(new_todos, ensure_ascii=False)
         # 思路：按日期 ts 合并（较新者胜，不依赖 seq）
         if incoming.get('my_ideas') is not None:
@@ -176,7 +180,7 @@ def merge_data(incoming):
         # （避免手机端旧缓存覆盖电脑端新数据；手机端也不编辑这些 key）
         if in_seq > local_seq:
             for k, v in incoming.items():
-                if k in ('__syncSeq', 'my_todo_list_v2', 'my_ideas'):
+                if k in ('__syncSeq', 'my_todo_list_v2', 'my_ideas', 'my_deleted'):
                     continue
                 local[k] = v
         seq = max(in_seq, local_seq)
@@ -216,6 +220,10 @@ def merge_from_web(incoming):
         # 任务列表：逐任务 updatedAt 合并
         new_todos = merge_todo_lists(local.get('my_todo_list_v2'),
                                      incoming.get('my_todo_list_v2'))
+        # 删除墓碑：合并 + 剔除
+        del_map = _merge_deleted(local.get('my_deleted'), incoming.get('my_deleted'))
+        new_todos = _apply_deleted(new_todos, del_map)
+        local['my_deleted'] = json.dumps(del_map, ensure_ascii=False)
         local['my_todo_list_v2'] = json.dumps(new_todos, ensure_ascii=False)
         # 思路：按日期 ts 合并（较新者胜）
         if incoming.get('my_ideas') is not None:
@@ -229,7 +237,7 @@ def merge_from_web(incoming):
             local['my_ideas'] = json.dumps(merged_ideas, ensure_ascii=False)
         # 其余 key：网页为准覆盖（网页是这些数据的权威编辑器）
         for k, v in incoming.items():
-            if k in ('__syncSeq', 'my_todo_list_v2', 'my_ideas'):
+            if k in ('__syncSeq', 'my_todo_list_v2', 'my_ideas', 'my_deleted'):
                 continue
             local[k] = v
         seq = get_sync_seq(local) + 1
@@ -242,6 +250,24 @@ def merge_from_web(incoming):
             pass
         _push_pull_if_changed()
         return True, seq
+
+
+def _merge_deleted(local_raw, in_raw):
+    """合并删除墓碑 {任务id: 删除时间戳}，取较新 ts"""
+    local_del = _json_load(local_raw, {})
+    in_del = _json_load(in_raw, {})
+    merged = dict(local_del)
+    for k, v in in_del.items():
+        if k not in merged or (v or 0) > (merged.get(k) or 0):
+            merged[k] = v
+    return merged
+
+
+def _apply_deleted(todos, del_map):
+    """从任务列表剔除已删除的任务 id"""
+    if not del_map:
+        return todos
+    return [t for t in todos if not (isinstance(t, dict) and t.get('id') in del_map)]
 
 
 def save_data(obj):
