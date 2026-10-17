@@ -388,6 +388,47 @@ class SyncHandler(BaseHTTPRequestHandler):
                     self.send_response(404)
                     self.end_headers()
                     self.wfile.write(b'mobile.html not found')
+            elif path.startswith('/manifest.json'):
+                # PWA manifest（添加到主屏幕配置）
+                f = os.path.join(app_base(), 'manifest.json')
+                if os.path.exists(f):
+                    with open(f, encoding='utf-8') as fp:
+                        content = fp.read()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/manifest+json; charset=utf-8')
+                    self._cors()
+                    self.end_headers()
+                    self.wfile.write(content.encode('utf-8'))
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+            elif path.startswith('/sw.js'):
+                # Service Worker（HTTPS/localhost 下离线缓存）
+                f = os.path.join(app_base(), 'sw.js')
+                if os.path.exists(f):
+                    with open(f, encoding='utf-8') as fp:
+                        content = fp.read()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/javascript; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(content.encode('utf-8'))
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+            elif path.startswith('/icons/'):
+                # PWA 图标（PNG）
+                name = os.path.basename(path)
+                f = os.path.join(app_base(), 'icons', name)
+                if os.path.exists(f):
+                    with open(f, 'rb') as fp:
+                        content = fp.read()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/png')
+                    self.end_headers()
+                    self.wfile.write(content)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
             elif path.startswith('/api/lanip'):
                 # 查询本机局域网 IP（手机端提示用）
                 self.send_response(200)

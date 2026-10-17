@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>待办 · 手机版</title>
+<!-- PWA：添加到主屏幕变成 App -->
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<meta name="theme-color" content="#5c6bc0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="待办">
 <style>
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body {
@@ -614,6 +623,15 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   });
 
   // ═══════════════════════ 启动 ═══════════════════════
+  function registerSW() {
+    // 注册 Service Worker（HTTPS 或 localhost 下生效）：缓存页面壳，支持离线打开 + 安装为 PWA
+    try {
+      if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+        navigator.serviceWorker.register('/sw.js').catch(function(e) { /* 局域网 HTTP 下不支持则静默 */ });
+      }
+    } catch(e) {}
+  }
+
   function init() {
     detectLanBase();
     // 若无法从 URL 推断电脑地址，尝试常见内网 IP 前缀探测
@@ -624,6 +642,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
         LAN_BASE = location.protocol + '//' + host + ':8899';
       }
     }
+    registerSW();
     render();
     setConn(LAN_BASE ? 'offline' : 'offline');
     if (LAN_BASE) trySync();
