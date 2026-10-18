@@ -98,7 +98,22 @@
 | `my_worklog` | 每日工作登记 |
 | `my_tomorrow_msg` / `my_tomorrow_dismiss` | 明天要说的话 / 弹窗关闭状态 |
 | `my_ideas` / `my_ideas_open` / `my_ideas_pos` | 思路侧边栏：`{日期: {text, ts}}` / 开合 / 手动翻页位置 |
+| `my_ideas_mode` / `my_ideas_pen_color` | 思路视图模式（`read`/`edit`/`pen`）/ 上次选中的画笔颜色（`r`/`y`/`g`，空=未选） |
 | `my_schedule_data` / `my_schedule_edit_mode` | 课表/日程数据 / 编辑模式 |
+
+### 5.3.1 思路正文内联语法（v11，**重要：改了这套语法就要同步改三端**）
+思路正文里用两种内联标记，**不新增存储字段**（`my_ideas` 仍是 `{日期:{text,ts}}`），因此同步格式与合并规则完全不变：
+
+| 语法 | 含义 | 正则 |
+|---|---|---|
+| `[r] 文字` / `[y] 文字` / `[g] 文字` | 行首标记：红/黄/绿轻重缓急 | `/^[ \t]*\[([rygRYG])\][ \t]*/` |
+| `[[显示文字\|详细说明]]` | 悬停说明（省略 `\|说明` 则说明=显示文字） | `/\[\[([^\[\]|]+)(?:\|([^\[\]]*))?\]\]/g` |
+
+渲染规则：**相邻同色的行合并成一整块**（`idea-block`），颜色小球只画在块首；标记语法本身不出现在渲染结果里。三端各自的实现位置：
+- 电脑 `todo.html`：`ideaParseLine` / `ideaSetLineColor` / `ideaRenderText` / `ideasRenderPreview`，模式切换 `ideasApplyMode`，涂抹 `ideaPenHit` / `ideaPenCommit`
+- 手机 `docs/mobile.html`：`mIdeaParseLine` / `mIdeaSetLineColor` / `mIdeaRenderText` / `mIdeasRenderPreview`，点按上色 `mIdeaPaintLine`
+
+> ⚠️ 已知坑：标记模式下编辑框被隐藏、永远拿不到焦点，所以 `isIdeasEditing()` 必须把「正在涂抹」和「停留在标记模式」也算作编辑中，否则网页 8s 轮询会刷新思路、把正在涂的笔画清掉。切走标记模式时要先存档再重载，避免漏掉期间合并进来的其它端改动。
 
 ### 5.3 手机版 localStorage keys（mobile.html）
 | Key | 内容 |
@@ -106,6 +121,7 @@
 | `mobile_todo_cache_v1` | `{seq, remoteSeq, data:{...全量数据}}` 离线缓存，含 `my_deleted` 墓碑 |
 | `mobile_ideas_v1` | 思路缓存（结构同 `my_ideas`） |
 | `mobile_ideas_pos` | 记住手动选中的思路日期（打开抽屉时恢复，不再每次跳回今天） |
+| `mobile_ideas_mode` / `mobile_ideas_pen_color` | 手机思路模式 / 上次选中的画笔颜色（同电脑端语义） |
 | `mobile_gitee_cfg_v1` | Gitee 配置：`{repo, branch, path, token, interval, apiBase, authMode}` |
 | `mobile_sync_state_v1` | 同步状态：`{lastAt, lastError, nextAllowedAt, rateStep, lastSyncedSeq}` |
 
@@ -219,6 +235,18 @@ pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为�
 | 静态路由 | 另起 `ThreadingHTTPServer`（非 8899）请求 `/mobile`、`/manifest.json`、`/sw.js`、`/icons/*`，核对 200 + no-cache |
 | 端到端 | 电脑/手机互操作：新增/勾选/删除/思路；墓碑不复活；非任务 key 不被手机覆盖；空闲两轮后 Gitee 不再产生提交 |
 
+### 9.1 v11 新增的自动化测试（`tests/`，用捆绑 Node 跑）
+```bash
+node tests/ideas_mark_test.js    # 语法解析/涂抹/擦除/相邻并块 纯逻辑（29 项）
+node tests/syntax_check.js       # 抽取两个 HTML 的内联脚本做 vm.Script 语法检查
+node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停（40 项，出截图）
+node tests/e2e_mobile.js         # 手机版点按上色/点链接看说明/摘要去语法（21 项，出截图）
+node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.py，走真实合并函数做往返断言（13 项）
+```
+> ⚠️ **铁律**：E2E 必须跑在**隔离副本**上（脚本已自动生成 `tests/out/sandbox*/` 并把同步地址改成不可达端口）。曾因直接对真实 `todo.html` 跑浏览器测试、而悬浮球正在运行，导致测试文本被 8s 轮询合并进真实 `my_ideas` 并自动推上了 Gitee（污染提交 `b79f9d2ea0`/seq=171，已用 `tests/restore_cloud.js` 以 seq=172 回退）。**动测试前先停掉 `todo_tray`**；同理，**不要往正在运行且开着云同步的真实悬浮球 POST 测试数据**。
+> `sync_format_test.js` 的做法：把 `todo_tray.py` 复制到 `tests/out/sandbox-tray/`，其 `DATA_FILE` 等路径随 `__file__` 落在沙箱内，再 `import` 并直接调用 `merge_from_web` / `merge_data` / `_normalize_cloud_payload` / `_owned_fingerprint`，既走真实代码又不碰真实数据。
+> 维护用脚本（仅在事故时使用）：`clean_pollution.js`（删本地测试污染键）、`restore_cloud.js`（云端回退，含回读校验）、`diff_cloud.js`（本地与云端逐 key 对比）。
+
 ## 10. 已知问题 / 注意事项（接手必读）
 
 1. **旧设备缓存 "推回"**：任务按 `updatedAt` 逐条合并、删除走墓碑，删除/编辑不会被旧快照覆盖；电脑从 Gitee 合并时只接受手机的三个 key，非任务 key（今日映射、计划、工作日志）始终由电脑保留。排查数据异常时，先让各端页面刷新一次，仍不对再检查 `my_deleted`。
@@ -247,7 +275,8 @@ pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为�
 | v7 删除任务 | 手机端 ✕ 删除 + **墓碑机制**多端删除同步 |
 | v8 同步回查+小窗重做 | 修复全量合并/墓碑/云端死锁/seq 心跳等 10+ 问题；小窗改为无边框圆角卡片，单例 + 3s 刷新 |
 | v9 思路侧栏重做 | 电脑/手机统一为“左编辑 + 右侧日期列表（日期 + 最后修改时间）”，手动点击切换，不再按天翻页/弹日历，编辑不新增日期 |
-| v10 Gitee + Netlify PWA | 校园网隔离/坚果云 CORS → 改用 Gitee 私有仓库做数据、Netlify 托管手机页；自动 120s 同步、语义指纹防回环、限流退避、401 回退、开机自启；移除手机端局域网轮询与坚果云（当前版本） |
+| v10 Gitee + Netlify PWA | 校园网隔离/坚果云 CORS → 改用 Gitee 私有仓库做数据、Netlify 托管手机页；自动 120s 同步、语义指纹防回环、限流退避、401 回退、开机自启；移除手机端局域网轮询与坚果云 |
+| v11 思路标记 + 悬停说明 | 思路正文内联语法 `[r]/[y]/[g]` 与 `[[文字\|说明]]`；阅读/编辑/涂抹三模式、荧光笔涂抹（手机点按）、相邻同色行自动并块且小球只在块首、悬停/点按看说明；不新增存储字段，三端同步格式不变（当前版本） |
 
 ## 12. Git 与协作
 

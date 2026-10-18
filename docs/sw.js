@@ -1,6 +1,6 @@
 // 待办手机版 Service Worker —— 缓存页面壳，支持“添加到主屏幕”后离线打开
 // 仅缓存同源 GET；Gitee API（跨域）与所有写请求一律直连网络，绝不缓存。
-var CACHE_NAME = 'todo-mobile-v3';
+var CACHE_NAME = 'todo-mobile-v4';
 var SHELL = [
   new URL('./mobile.html', self.location.href).href,
   new URL('./manifest.json', self.location.href).href,

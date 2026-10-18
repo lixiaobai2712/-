@@ -83,6 +83,42 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 .ideas-date-row .today { flex-shrink: 0; height: 32px; border: 1px solid #5c6bc0; border-radius: 8px; background: #5c6bc0; color: #fff; font-size: 13px; padding: 0 10px; }
 .ideas-date-row .today:disabled { opacity: 0.45; }
 .ideas-textarea { width: 100%; min-height: 180px; flex: 1; border: 1px solid #eee; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.7; outline: none; resize: none; font-family: inherit; box-sizing: border-box; }
+/* ── 思路：轻重缓急标记 + 悬停说明 ── */
+.ideas-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.ideas-seg { display: flex; border: 1px solid #dcdfe6; border-radius: 8px; overflow: hidden; }
+.ideas-seg button { border: none; background: #fff; color: #666; font-size: 12px; padding: 6px 10px; }
+.ideas-seg button.active { background: #5c6bc0; color: #fff; }
+.ideas-pen { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #dcdfe6; padding: 0; flex-shrink: 0; }
+.ideas-pen[data-color="r"] { background: #ff5252; }
+.ideas-pen[data-color="y"] { background: #ffc107; }
+.ideas-pen[data-color="g"] { background: #4caf50; }
+.ideas-pen[data-color="e"] { background: #fff; color: #999; font-size: 13px; line-height: 1; }
+.ideas-pen.active { box-shadow: 0 0 0 2px #333; }
+.ideas-toolbtn { border: 1px solid #dcdfe6; background: #fff; color: #666; font-size: 12px; padding: 6px 10px; border-radius: 8px; }
+.ideas-toolbtn:active { background: #eef1ff; }
+.ideas-hint { font-size: 11px; color: #aaa; margin-left: auto; }
+.ideas-preview { flex: 1; overflow-y: auto; border: 1px solid #eee; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.7; color: #333; }
+.ideas-preview.pen-mode { background: #fcfcff; }
+.idea-block { position: relative; border-radius: 6px; padding: 2px 2px; }
+.idea-block.idea-red, .idea-block.idea-yellow, .idea-block.idea-green { padding-left: 20px; }
+.idea-block.idea-red { background: #ffe8e8; box-shadow: inset 3px 0 0 #ff5252; }
+.idea-block.idea-yellow { background: #fff7d9; box-shadow: inset 3px 0 0 #ffc107; }
+.idea-block.idea-green { background: #e6f7e9; box-shadow: inset 3px 0 0 #4caf50; }
+.idea-ball { position: absolute; left: 5px; top: 0.75em; width: 9px; height: 9px; border-radius: 50%; }
+.idea-block.idea-red .idea-ball { background: #ff5252; }
+.idea-block.idea-yellow .idea-ball { background: #ffc107; }
+.idea-block.idea-green .idea-ball { background: #4caf50; }
+.idea-line { min-height: 1.7em; white-space: pre-wrap; word-break: break-word; border-radius: 4px; }
+.idea-link { color: #3949ab; border-bottom: 1px dashed #8c95dd; background: rgba(92,107,192,0.08); border-radius: 3px; padding: 0 2px; }
+.ideas-preview-empty { color: #bbb; font-size: 13px; padding: 24px 0; text-align: center; }
+/* 手机端说明气泡：贴着被点的链接弹出 */
+.idea-tip {
+  position: fixed; left: 12px; top: 0; z-index: 200; max-width: calc(100vw - 24px);
+  background: #333a4d; color: #fff; font-size: 13px; line-height: 1.6;
+  padding: 10px 12px; border-radius: 10px; box-shadow: 0 4px 18px rgba(0,0,0,.3);
+  display: none; white-space: pre-wrap; word-break: break-word;
+}
+.idea-tip.show { display: block; }
 .ideas-side { width: 116px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid #eee; }
 .ideas-side-title { padding: 0 6px 6px; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
 .ideas-date-list { flex: 1; overflow-y: auto; }
@@ -167,6 +203,21 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
         <span class="date-label" id="ideasDateLabel"></span>
         <button class="today" id="ideasToday">今天</button>
       </div>
+      <div class="ideas-toolbar">
+        <div class="ideas-seg">
+          <button class="active" id="mIdeasModeRead">📖 阅读</button>
+          <button id="mIdeasModeEdit">✏️ 编辑</button>
+        </div>
+        <div class="ideas-seg" id="mIdeasPenGroup" style="display:none;">
+          <button class="ideas-pen" data-color="r" title="红色"></button>
+          <button class="ideas-pen" data-color="y" title="黄色"></button>
+          <button class="ideas-pen" data-color="g" title="绿色"></button>
+          <button class="ideas-pen" data-color="e" title="橡皮">✕</button>
+        </div>
+        <button class="ideas-toolbtn" id="mIdeasLinkBtn">🔗 说明</button>
+        <span class="ideas-hint" id="mIdeasHint"></span>
+      </div>
+      <div class="ideas-preview" id="mIdeasPreview" style="display:none;"></div>
       <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存到当前日期）"></textarea>
     </div>
     <div class="ideas-side">
@@ -175,6 +226,9 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     </div>
   </div>
 </div>
+
+<!-- 思路说明气泡（点击链接时显示） -->
+<div class="idea-tip" id="mIdeaTip"></div>
 
 <!-- Gitee 同步弹窗 -->
 <div class="modal" id="giteeModal">
@@ -347,7 +401,11 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     var store = loadIdeasStore();
     var keys = Object.keys(store).filter(function(k) { return store[k] && store[k].text; }).sort().reverse();
     if (keys.length) {
-      sum.innerHTML = '<span style="font-size:13px;color:#666">最近：' + escapeHtml(store[keys[0]].text.slice(0, 30)) + (store[keys[0]].text.length > 30 ? '…' : '') + '（' + keys[0] + '）</span>';
+      // 摘要去掉标记/说明语法，只展示纯文字
+      var plain = (store[keys[0]].text || '').split('\n').map(function(l) {
+        return mIdeaParseLine(l).text.replace(/\[\[([^\[\]|]+)(?:\|[^\[\]]*)?\]\]/g, '$1');
+      }).join(' ');
+      sum.innerHTML = '<span style="font-size:13px;color:#666">最近：' + escapeHtml(plain.slice(0, 30)) + (plain.length > 30 ? '…' : '') + '（' + keys[0] + '）</span>';
     } else {
       sum.innerHTML = '<div class="empty">点上方"打开"记录思路（右侧日期列表）</div>';
     }
@@ -1182,6 +1240,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     document.getElementById('ideasToday').disabled = isToday;
     try { localStorage.setItem(IDEAS_POS_KEY, date); } catch(e) {}
     ideasRenderList();
+    mIdeasRenderPreview();
   }
 
   function ideasSavePage() {
@@ -1200,6 +1259,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     saveCache(state);
     markLocalDirty();
     ideasRenderList();
+    mIdeasRenderPreview();
   }
 
   function openIdeas() {
@@ -1220,8 +1280,214 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     ideasSavePage();
     document.getElementById('ideasDrawer').classList.remove('show');
     document.getElementById('ideasMask').classList.remove('show');
+    hideMIdeaTip();
     render();
   }
+
+  /* ═══════════════════════════════════════════
+   *  思路：轻重缓急标记 + 悬停说明（与电脑端同一套正文语法）
+   *   行首标记 [r]/[y]/[g]；说明 [[显示文字|详细说明]]
+   *   手机没有鼠标：点一下行即为“涂上”当前选中的颜色。
+   * ═══════════════════════════════════════════ */
+  var M_IDEA_MODE_KEY = 'mobile_ideas_mode';
+  var M_IDEA_PEN_KEY = 'mobile_ideas_pen_color';
+  var MIdeaMode = 'read';
+  var MIdeaPen = 'r';
+
+  var M_MARK_RE = /^[ \t]*\[([rygRYG])\][ \t]*/;
+  var M_LINK_RE = /\[\[([^\[\]|]+)(?:\|([^\[\]]*))?\]\]/g;
+  var M_COLOR_CLASS = { r: 'red', y: 'yellow', g: 'green' };
+
+  function mIdeaParseLine(line) {
+    var m = M_MARK_RE.exec(line);
+    if (m) return { color: m[1].toLowerCase(), text: line.slice(m[0].length) };
+    return { color: '', text: line };
+  }
+
+  function mIdeaSetLineColor(lines, idx, color) {
+    if (idx < 0 || idx >= lines.length) return;
+    var body = mIdeaParseLine(lines[idx]).text;
+    if (color === 'e' || color === '') lines[idx] = body;
+    else lines[idx] = '[' + color + '] ' + body;
+  }
+
+  function mIdeaRenderText(text) {
+    var out = '', last = 0, m;
+    M_LINK_RE.lastIndex = 0;
+    while ((m = M_LINK_RE.exec(text)) !== null) {
+      out += escapeHtml(text.slice(last, m.index));
+      var label = m[1];
+      var tip = (m[2] !== undefined && m[2] !== '') ? m[2] : label;
+      out += '<span class="idea-link" data-tip="' +
+             escapeHtml(tip) + '">' + escapeHtml(label) + '</span>';
+      last = m.index + m[0].length;
+    }
+    out += escapeHtml(text.slice(last));
+    return out;
+  }
+
+  function mIdeasRenderPreview() {
+    var box = document.getElementById('mIdeasPreview');
+    if (!box) return;
+    var raw = document.getElementById('ideasTextarea').value || '';
+    var lines = raw.split('\n');
+    var blocks = [];
+    lines.forEach(function(line, i) {
+      var p = mIdeaParseLine(line);
+      var prev = blocks[blocks.length - 1];
+      if (prev && prev.color && prev.color === p.color) {
+        prev.lines.push({ idx: i, text: p.text });
+      } else {
+        blocks.push({ color: p.color, lines: [{ idx: i, text: p.text }] });
+      }
+    });
+    var colored = blocks.filter(function(b) { return b.color; }).length;
+
+    if (raw.trim() === '') {
+      box.innerHTML = '<div class="ideas-preview-empty">还没有内容，切到「✏️ 编辑」写下第一句吧</div>';
+    } else {
+      var html = '';
+      blocks.forEach(function(b) {
+        var cls = 'idea-block' + (b.color ? (' idea-' + M_COLOR_CLASS[b.color]) : '');
+        html += '<div class="' + cls + '" data-lines="' +
+                b.lines.map(function(l) { return l.idx; }).join(',') + '">';
+        if (b.color) html += '<span class="idea-ball"></span>';
+        b.lines.forEach(function(l) {
+          html += '<div class="idea-line" data-line="' + l.idx + '">' +
+                  (l.text === '' ? '&nbsp;' : mIdeaRenderText(l.text)) + '</div>';
+        });
+        html += '</div>';
+      });
+      box.innerHTML = html;
+    }
+
+    var hint = document.getElementById('mIdeasHint');
+    if (hint) {
+      if (MIdeaMode === 'pen') hint.textContent = '点一下行即可上色' + (colored ? ' · ' + colored + ' 块' : '');
+      else if (MIdeaMode === 'read') hint.textContent = '点虚线上看说明';
+      else hint.textContent = '[r][y][g]  [[文字|说明]]';
+    }
+  }
+
+  function mIdeasApplyMode() {
+    var readBtn = document.getElementById('mIdeasModeRead');
+    var editBtn = document.getElementById('mIdeasModeEdit');
+    var ta = document.getElementById('ideasTextarea');
+    var pv = document.getElementById('mIdeasPreview');
+    var group = document.getElementById('mIdeasPenGroup');
+    readBtn.classList.toggle('active', MIdeaMode === 'read');
+    editBtn.classList.toggle('active', MIdeaMode === 'edit');
+    ta.style.display = (MIdeaMode === 'edit') ? '' : 'none';
+    pv.style.display = (MIdeaMode === 'edit') ? 'none' : 'block';
+    pv.classList.toggle('pen-mode', MIdeaMode === 'pen');
+    group.style.display = (MIdeaMode === 'pen') ? '' : 'none';
+    var pens = group.querySelectorAll('.ideas-pen');
+    for (var i = 0; i < pens.length; i++) {
+      pens[i].classList.toggle('active', pens[i].dataset.color === MIdeaPen);
+    }
+    try { localStorage.setItem(M_IDEA_MODE_KEY, MIdeaMode); } catch(e) {}
+    hideMIdeaTip();
+    mIdeasRenderPreview();
+  }
+
+  function mIdeasSetMode(mode) {
+    if (mode === MIdeaMode) return;
+    MIdeaMode = (mode === 'pen' || mode === 'read') ? mode : 'edit';
+    mIdeasApplyMode();
+  }
+
+  // 点一下行 = 上色（手机无鼠标，不做拖拽涂抹）
+  function mIdeaPaintLine(idx) {
+    var ta = document.getElementById('ideasTextarea');
+    var lines = (ta.value || '').split('\n');
+    mIdeaSetLineColor(lines, idx, MIdeaPen);
+    ta.value = lines.join('\n');
+    ideasSavePage();     // 内部会刷新右侧列表
+  }
+
+  function hideMIdeaTip() {
+    var t = document.getElementById('mIdeaTip');
+    if (t) t.classList.remove('show');
+  }
+  function showMIdeaTip(el) {
+    var t = document.getElementById('mIdeaTip');
+    if (!t) return;
+    var tip = el.getAttribute('data-tip');
+    if (!tip) return;
+    t.textContent = tip;
+    t.classList.add('show');
+    // 贴着被点的链接显示：优先放下方，放不下就翻到上方，并夹在视口内
+    var r = el.getBoundingClientRect();
+    var bh = t.offsetHeight, bw = t.offsetWidth;
+    var top = r.bottom + 8;
+    if (top + bh > window.innerHeight - 8) top = Math.max(8, r.top - bh - 8);
+    var left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - bw - 8));
+    t.style.top = top + 'px';
+    t.style.left = left + 'px';
+    t.style.right = 'auto';
+  }
+
+  document.getElementById('mIdeasModeRead').addEventListener('click', function() { mIdeasSetMode('read'); });
+  document.getElementById('mIdeasModeEdit').addEventListener('click', function() { mIdeasSetMode('edit'); });
+  document.getElementById('mIdeasPenGroup').addEventListener('click', function(e) {
+    var btn = e.target.closest('.ideas-pen');
+    if (!btn) return;
+    var c = btn.dataset.color || '';
+    if (MIdeaMode !== 'pen') MIdeaMode = 'pen';
+    MIdeaPen = (MIdeaPen === c) ? '' : c;   // 再点一次取消选中
+    try { localStorage.setItem(M_IDEA_PEN_KEY, MIdeaPen); } catch(e) {}
+    mIdeasApplyMode();
+  });
+  document.getElementById('mIdeasPreview').addEventListener('click', function(e) {
+    var link = e.target.closest ? e.target.closest('.idea-link') : null;
+    if (MIdeaMode === 'pen') {
+      if (MIdeaPen === '') return;
+      var lineEl = e.target.closest ? e.target.closest('.idea-line') : null;
+      if (lineEl) mIdeaPaintLine(parseInt(lineEl.dataset.line, 10));
+      return;
+    }
+    if (link) {
+      if (document.getElementById('mIdeaTip').classList.contains('show')) hideMIdeaTip();
+      else showMIdeaTip(link);
+    }
+  });
+  document.getElementById('mIdeasPreview').addEventListener('scroll', hideMIdeaTip);
+
+  // 🔗 说明：用 prompt 收集（手机端不做复杂弹窗）
+  function mIdeasInsertLink() {
+    if (MIdeaMode !== 'edit') { MIdeaMode = 'edit'; mIdeasApplyMode(); }
+    var ta = document.getElementById('ideasTextarea');
+    var sel = '';
+    try {
+      if (ta.selectionStart !== ta.selectionEnd) {
+        sel = (ta.value || '').slice(ta.selectionStart, ta.selectionEnd).replace(/[\r\n]/g, ' ').trim();
+      }
+    } catch(e) {}
+    var label = prompt('要显示的文字：', sel || '');
+    if (label === null) return;
+    label = label.trim();
+    if (!label) { toast('请填写要显示的文字'); return; }
+    var tip = prompt('详细内容（点它才显示）：', '');
+    if (tip === null) return;
+    tip = tip.trim();
+    var snippet = tip ? ('[[' + label + '|' + tip + ']]') : ('[[' + label + ']]');
+    var start = ta.selectionStart, end = ta.selectionEnd;
+    var val = ta.value || '';
+    ta.value = val.slice(0, start) + snippet + val.slice(end);
+    var caret = start + snippet.length;
+    try { ta.setSelectionRange(caret, caret); } catch(e) {}
+    ideasSavePage();
+  }
+  document.getElementById('mIdeasLinkBtn').addEventListener('click', mIdeasInsertLink);
+
+  // 恢复上次的模式与笔色
+  try {
+    var mm = localStorage.getItem(M_IDEA_MODE_KEY);
+    if (mm === 'pen' || mm === 'edit' || mm === 'read') MIdeaMode = mm;
+    var mc = localStorage.getItem(M_IDEA_PEN_KEY);
+    if (mc === 'r' || mc === 'y' || mc === 'g') MIdeaPen = mc;
+  } catch(e) {}
+  mIdeasApplyMode();
 
   // ═══════════════════════ 事件绑定 ═══════════════════════
   document.getElementById('addBtn').addEventListener('click', addTask);
@@ -1265,6 +1531,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   document.getElementById('ideasTextarea').addEventListener('input', function() {
     clearTimeout(ideasDebounce);
     ideasDebounce = setTimeout(ideasSavePage, 400);
+    mIdeasRenderPreview();
   });
 
   // ═══════════════════════ 启动 ═══════════════════════

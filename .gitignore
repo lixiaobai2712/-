@@ -18,3 +18,11 @@ todo_sync.json
 todo_pull.json
 todo_ball_pos.json
 cloud_config.json
+
+# meow-memory 记忆库（隐藏目录，误删不可恢复，不入库）
+.dsh-meow/
+
+# 测试临时产物（浏览器副本、截图、清理备份）
+tests/out/
+.acl-reports/
+

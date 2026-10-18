@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -1307,6 +1307,70 @@ body {
   font-size: 14px; font-family: inherit; line-height: 1.7;
   resize: none; color: #333; background: #fff;
 }
+
+/* ─── 思路：轻重缓急标记（红黄绿）与悬停说明 ─── */
+.ideas-toolbar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 12px; border-bottom: 1px solid #eee; background: #fafbff;
+}
+.ideas-mode-group { display: flex; border: 1px solid #dcdfe6; border-radius: 8px; overflow: hidden; }
+.ideas-mode-btn {
+  border: none; background: #fff; color: #666; font-size: 12px;
+  padding: 4px 10px; cursor: pointer; white-space: nowrap;
+}
+.ideas-mode-btn.active { background: #5c6bc0; color: #fff; }
+.ideas-pen {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid #fff; cursor: pointer; padding: 0;
+  box-shadow: 0 0 0 1px #dcdfe6; transition: transform 0.12s;
+}
+.ideas-pen[data-color="r"] { background: #ff5252; }
+.ideas-pen[data-color="y"] { background: #ffc107; }
+.ideas-pen[data-color="g"] { background: #4caf50; }
+.ideas-pen:hover { transform: scale(1.12); }
+.ideas-pen.active { box-shadow: 0 0 0 2px #333; }
+.ideas-tool-btn {
+  border: 1px solid #dcdfe6; background: #fff; color: #666; font-size: 12px;
+  padding: 4px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+}
+.ideas-tool-btn:hover { background: #eef1ff; color: #3949ab; }
+.ideas-tool-btn.active { background: #5c6bc0; color: #fff; border-color: #5c6bc0; }
+.ideas-hint { font-size: 11px; color: #aaa; margin-left: auto; white-space: nowrap; }
+.ideas-preview {
+  flex: 1; overflow-y: auto; padding: 10px 12px;
+  font-size: 14px; line-height: 1.7; color: #333; background: #fff;
+}
+.ideas-preview.pen-mode { cursor: crosshair; user-select: none; -webkit-user-select: none; }
+.idea-block {
+  position: relative; border-radius: 6px;
+  padding: 1px 2px; margin: 1px 0;
+}
+.idea-block.idea-red, .idea-block.idea-yellow, .idea-block.idea-green {
+  padding-left: 18px;
+}
+.idea-block.idea-red { background: #ffe8e8; box-shadow: inset 3px 0 0 #ff5252; }
+.idea-block.idea-yellow { background: #fff7d9; box-shadow: inset 3px 0 0 #ffc107; }
+.idea-block.idea-green { background: #e6f7e9; box-shadow: inset 3px 0 0 #4caf50; }
+.idea-ball {
+  position: absolute; left: 4px; top: 0.72em;
+  width: 9px; height: 9px; border-radius: 50%;
+}
+.idea-block.idea-red .idea-ball { background: #ff5252; }
+.idea-block.idea-yellow .idea-ball { background: #ffc107; }
+.idea-block.idea-green .idea-ball { background: #4caf50; }
+.idea-line { min-height: 1.7em; white-space: pre-wrap; word-break: break-word; }
+.idea-line.pen-hit { box-shadow: inset 0 0 0 2px #5c6bc0; border-radius: 4px; }
+.idea-link {
+  color: #3949ab; border-bottom: 1px dashed #8c95dd; cursor: help;
+  background: rgba(92,107,192,0.08); border-radius: 3px; padding: 0 2px;
+}
+.idea-tip {
+  position: fixed; z-index: 10006; max-width: 280px;
+  background: #333a4d; color: #fff; font-size: 12px; line-height: 1.6;
+  padding: 8px 10px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  pointer-events: none; display: none; white-space: pre-wrap; word-break: break-word;
+}
+.ideas-preview-empty { color: #bbb; font-size: 13px; padding: 24px 0; text-align: center; }
 </style>
 </head>
 <body>
@@ -1481,6 +1545,21 @@ body {
         <span class="ideas-date-label" id="ideasDateLabel"></span>
         <button class="ideas-today-btn" id="ideasToday" title="回到今天">今天</button>
       </div>
+      <div class="ideas-toolbar">
+        <div class="ideas-mode-group">
+          <button class="ideas-mode-btn active" id="ideasModeRead" title="带颜色、可悬停查看说明">📖 阅读</button>
+          <button class="ideas-mode-btn" id="ideasModeEdit" title="纯文本编辑，可直接输入标记语法">✏️ 编辑</button>
+        </div>
+        <div class="ideas-mode-group" id="ideasPenGroup" style="display:none;">
+          <button class="ideas-pen" data-color="r" title="红色 · 又急又重要（再点一次取消）"></button>
+          <button class="ideas-pen" data-color="y" title="黄色 · 重要但不急（再点一次取消）"></button>
+          <button class="ideas-pen" data-color="g" title="绿色 · 不急也不重要（再点一次取消）"></button>
+          <button class="ideas-pen" data-color="e" title="橡皮 · 涂抹清除标记（再点一次取消）" style="background:#fff;color:#999;font-size:12px;line-height:1;">✕</button>
+        </div>
+        <button class="ideas-tool-btn" id="ideasLinkBtn" title="插入悬停说明">🔗 说明</button>
+        <span class="ideas-hint" id="ideasHint"></span>
+      </div>
+      <div class="ideas-preview" id="ideasPreview" style="display:none;"></div>
       <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存到当前日期）" autocomplete="off"></textarea>
     </div>
     <div class="ideas-side">
@@ -1490,6 +1569,29 @@ body {
   </div>
 </div>
 <div class="ideas-toggle" id="ideasToggle" title="思路整理">◀</div>
+<div class="idea-tip" id="ideaTip"></div>
+
+<!-- ═══ 思路：插入悬停说明弹窗 ═══ -->
+<div class="modal-overlay" id="ideaLinkModal" style="z-index:10005;">
+  <div class="modal-box" style="max-width:400px;">
+    <h3>🔗 插入悬停说明</h3>
+    <div style="text-align:left;">
+      <div class="detail-row" style="margin-bottom:10px;">
+        <label>显示的文字（鼠标看到的）</label>
+        <input type="text" id="ideaLinkLabel" placeholder="例如：项目文档" autocomplete="off"
+          style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;outline:none;">
+      </div>
+      <div class="detail-row" style="margin-bottom:4px;">
+        <label>详细内容（鼠标放上去才显示）</label>
+        <textarea id="ideaLinkTip" rows="3" placeholder="例如：https://xxx ／ 这段是给三个月后的自己看的背景说明"></textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
+      <button id="ideaLinkCancel" style="padding:8px 20px;background:#f5f5f5;border:1px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;">取消</button>
+      <button id="ideaLinkOk" style="padding:8px 20px;background:#5c6bc0;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;">插入</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
@@ -3125,6 +3227,7 @@ body {
     document.getElementById('ideasToday').disabled = isToday;
     try { localStorage.setItem(IDEAS_POS_KEY, date); } catch(e) {}
     ideasRenderList();
+    safeCall(ideasRenderPreview, 'ideasRenderPreview');
   }
 
   function ideasSavePage() {
@@ -3141,6 +3244,7 @@ body {
     }
     ideasSaveStore(store);
     ideasRenderList();
+    ideasRenderPreview();
   }
 
   function ideasGoToday() {
@@ -3186,6 +3290,7 @@ body {
   document.getElementById('ideasTextarea').addEventListener('input', function() {
     clearTimeout(ideasTimer);
     ideasTimer = setTimeout(saveIdeas, 300);
+    safeCall(ideasRenderPreview, 'ideasPreviewOnInput');
   });
   document.getElementById('ideasTextarea').addEventListener('blur', saveIdeas);
   document.getElementById('ideasToday').addEventListener('click', ideasGoToday);
@@ -3198,6 +3303,326 @@ body {
     ideasSavePage();
     ideasLoadPage(date);
   });
+
+  /* ═══════════════════════════════════════════
+   *  思路整理：轻重缓急标记（荧光笔）+ 悬停说明（超链接式）
+   *  ── 不新增任何存储字段，标记与说明都写进 text 正文 ──
+   *   行首标记： [r] 红 / [y] 黄 / [g] 绿   （一行一个，写在行首）
+   *   悬停说明： [[显示文字|详细说明]]      （详细说明可省略）
+   *  相邻同色的行渲染时自动并成一整块，小球只出现在最前面。
+   * ═══════════════════════════════════════════ */
+  var IDEA_MODE_KEY = 'my_ideas_mode';          // 'read' | 'edit' | 'pen'
+  var IDEA_PEN_COLOR_KEY = 'my_ideas_pen_color';
+  var ideaMode = 'read';
+  var ideaPenColor = 'r';
+  var penPainting = false;
+  var penTouched = {};        // {行号: true} 本次涂抹碰到的行
+  var penLineEls = {};        // {行号: 元素} 涂抹时实时高亮
+
+  // 行首标记：兼容大小写，标记后可跟 0~N 个空格
+  var IDEA_MARK_RE = /^[ \t]*\[([rygRYG])\][ \t]*/;
+  // 悬停说明：[[文字|说明]] 或 [[文字]]
+  var IDEA_LINK_RE = /\[\[([^\[\]|]+)(?:\|([^\[\]]*))?\]\]/g;
+  var IDEA_COLOR_CLASS = { r: 'red', y: 'yellow', g: 'green' };
+  var IDEA_PEN_TIP = { r: '红色', y: '黄色', g: '绿色' };
+
+  function ideaParseLine(line) {
+    var m = IDEA_MARK_RE.exec(line);
+    if (m) return { color: m[1].toLowerCase(), text: line.slice(m[0].length) };
+    return { color: '', text: line };
+  }
+
+  // 给某一行加/换/去标记（color 传 '' 或 'e' 即清除）
+  function ideaSetLineColor(lines, idx, color) {
+    if (idx < 0 || idx >= lines.length) return;
+    var body = ideaParseLine(lines[idx]).text;
+    if (color === 'e' || color === '') lines[idx] = body;
+    else lines[idx] = '[' + color + '] ' + body;
+  }
+
+  // 渲染一行正文：转义 + 把 [[..]] 变成可悬停的说明链接
+  function ideaRenderText(text) {
+    var out = '', last = 0, m;
+    IDEA_LINK_RE.lastIndex = 0;
+    while ((m = IDEA_LINK_RE.exec(text)) !== null) {
+      out += escapeHtml(text.slice(last, m.index));
+      var label = m[1];
+      var tip = (m[2] !== undefined && m[2] !== '') ? m[2] : label;
+      out += '<span class="idea-link" data-tip="' +
+             escapeHtml(tip).replace(/"/g, '&quot;') + '">' +
+             escapeHtml(label) + '</span>';
+      last = m.index + m[0].length;
+    }
+    out += escapeHtml(text.slice(last));
+    return out;
+  }
+
+  function ideasRenderPreview() {
+    var box = document.getElementById('ideasPreview');
+    if (!box) return;
+    var raw = document.getElementById('ideasTextarea').value || '';
+    var lines = raw.split('\n');
+    penLineEls = {};
+
+    // 相邻同色的行合并成一整块（小球只画在块首）
+    var blocks = [];
+    for (var i = 0; i < lines.length; i++) {
+      var p = ideaParseLine(lines[i]);
+      var prev = blocks[blocks.length - 1];
+      if (prev && prev.color && prev.color === p.color) {
+        prev.lines.push({ idx: i, text: p.text });
+      } else {
+        blocks.push({ color: p.color, lines: [{ idx: i, text: p.text }] });
+      }
+    }
+    var colored = blocks.filter(function(b) { return b.color; }).length;
+
+    if (raw.trim() === '') {
+      box.innerHTML = '<div class="ideas-preview-empty">还没有内容，切到「✏️ 编辑」写下第一句吧</div>';
+    } else {
+      var html = '';
+      blocks.forEach(function(b) {
+        var idxs = b.lines.map(function(l) { return l.idx; });
+        var cls = 'idea-block' + (b.color ? (' idea-' + IDEA_COLOR_CLASS[b.color]) : '');
+        // 块内行号集合：涂抹到色条/小球时整块处理
+        html += '<div class="' + cls + '" data-lines="' + idxs.join(',') + '">';
+        if (b.color) html += '<span class="idea-ball"></span>';
+        b.lines.forEach(function(l) {
+          html += '<div class="idea-line" data-line="' + l.idx + '">' +
+                  (l.text === '' ? '&nbsp;' : ideaRenderText(l.text)) + '</div>';
+        });
+        html += '</div>';
+      });
+      box.innerHTML = html;
+      var lineEls = box.querySelectorAll('.idea-line');
+      for (var k = 0; k < lineEls.length; k++) {
+        penLineEls[parseInt(lineEls[k].dataset.line, 10)] = lineEls[k];
+      }
+    }
+
+    var hint = document.getElementById('ideasHint');
+    if (hint) {
+      if (ideaMode === 'pen') {
+        if (!ideaPenColor) hint.textContent = '选一支笔再涂抹';
+        else if (penPainting) hint.textContent = '松手生效';
+        else hint.textContent = '涂抹打' + (IDEA_PEN_TIP[ideaPenColor] || '') + '标记' +
+               (colored ? ' · 已有 ' + colored + ' 块' : '');
+      } else if (ideaMode === 'read') {
+        hint.textContent = '鼠标放到虚线上看说明';
+      } else {
+        hint.textContent = '[r]红 [y]黄 [g]绿   [[文字|说明]]';
+      }
+    }
+  }
+
+  // ── 模式切换（阅读 / 编辑 / 涂抹） ──
+  function ideasApplyMode() {
+    var readBtn = document.getElementById('ideasModeRead');
+    var editBtn = document.getElementById('ideasModeEdit');
+    var ta = document.getElementById('ideasTextarea');
+    var pv = document.getElementById('ideasPreview');
+    var group = document.getElementById('ideasPenGroup');
+    readBtn.classList.toggle('active', ideaMode === 'read');
+    editBtn.classList.toggle('active', ideaMode === 'edit');
+    // 阅读/涂抹模式：隐藏 textarea，显示渲染视图；编辑模式反之
+    ta.style.display = (ideaMode === 'edit') ? '' : 'none';
+    pv.style.display = (ideaMode === 'edit') ? 'none' : '';
+    pv.classList.toggle('pen-mode', ideaMode === 'pen');
+    group.style.display = (ideaMode === 'pen') ? '' : 'none';
+    var pens = group.querySelectorAll('.ideas-pen');
+    for (var i = 0; i < pens.length; i++) {
+      pens[i].classList.toggle('active', pens[i].dataset.color === ideaPenColor);
+    }
+    try { localStorage.setItem(IDEA_MODE_KEY, ideaMode); } catch(e) {}
+    hideIdeaTip();
+    ideasRenderPreview();
+  }
+
+  function ideasSetMode(mode) {
+    if (mode === ideaMode) return;
+    if (penPainting) { penPainting = false; penTouched = {}; }
+    // 标记模式下会跳过拉取刷新（避免丢笔画）；切走时先落盘再重载，
+    // 让期间合并进来的其它端改动显示出来。
+    var wasPen = (ideaMode === 'pen');
+    ideaMode = (mode === 'pen' || mode === 'read') ? mode : 'edit';
+    if (wasPen) {
+      try { ideasSavePage(); ideasLoadPage(ideasCurrentDate); } catch(e) {}
+    }
+    ideasApplyMode();
+  }
+
+  // ── 荧光笔涂抹 ──
+  function ideaPenTouch(idx) {
+    if (typeof idx !== 'number' || isNaN(idx) || idx < 0) return;
+    if (penTouched[idx]) return;
+    penTouched[idx] = true;
+    var el = penLineEls[idx];
+    if (el) el.classList.add('pen-hit');
+  }
+
+  // 涂抹命中：涂到某一行就标记该行；点在块的小球/色条上则整块一起换色
+  function ideaPenHit(e) {
+    var el = e.target;
+    var lineEl = el.closest ? el.closest('.idea-line') : null;
+    if (lineEl) {
+      ideaPenTouch(parseInt(lineEl.dataset.line, 10));
+      return;
+    }
+    var blockEl = el.closest ? el.closest('.idea-block') : null;
+    if (blockEl && blockEl.dataset.lines) {
+      blockEl.dataset.lines.split(',').forEach(function(s) {
+        ideaPenTouch(parseInt(s, 10));
+      });
+    }
+  }
+
+  function ideaPenCommit() {
+    var touched = Object.keys(penTouched);
+    if (touched.length === 0) return;
+    var ta = document.getElementById('ideasTextarea');
+    var lines = (ta.value || '').split('\n');
+    touched.forEach(function(k) {
+      ideaSetLineColor(lines, parseInt(k, 10), ideaPenColor);
+    });
+    ta.value = lines.join('\n');
+    penTouched = {};
+    ideasSavePage();          // 落盘（同时刷新预览与右侧列表）
+  }
+
+  // 画笔点选：再点一次同一支笔 = 取消选中（避免误涂）
+  document.getElementById('ideasModeRead').addEventListener('click', function() { ideasSetMode('read'); });
+  document.getElementById('ideasModeEdit').addEventListener('click', function() { ideasSetMode('edit'); });
+  document.getElementById('ideasPenGroup').addEventListener('click', function(e) {
+    var btn = e.target.closest('.ideas-pen');
+    if (!btn) return;
+    var c = btn.dataset.color || '';
+    if (ideaMode !== 'pen') { ideaMode = 'pen'; }
+    ideaPenColor = (ideaPenColor === c) ? '' : c;   // 取消选中 → 无法涂抹
+    try { localStorage.setItem(IDEA_PEN_COLOR_KEY, ideaPenColor); } catch(e) {}
+    ideasApplyMode();
+  });
+
+  var previewEl = document.getElementById('ideasPreview');
+  previewEl.addEventListener('mousedown', function(e) {
+    if (ideaMode !== 'pen' || ideaPenColor === '' || e.button !== 0) return;
+    e.preventDefault();
+    penPainting = true;
+    penTouched = {};
+    ideaPenHit(e);
+  });
+  previewEl.addEventListener('mousemove', function(e) {
+    if (!penPainting) return;
+    e.preventDefault();
+    ideaPenHit(e);
+  });
+  document.addEventListener('mouseup', function() {
+    if (!penPainting) return;
+    penPainting = false;
+    ideaPenCommit();
+  });
+  // 触摸屏：涂抹退化为“点一下整行”
+  previewEl.addEventListener('click', function(e) {
+    if (ideaMode !== 'pen' || ideaPenColor === '' || penPainting) return;
+    if (!e.target.closest || !e.target.closest('.idea-line')) return;
+    ideaPenHit(e);
+    ideaPenCommit();
+  });
+
+  // ── 悬停说明（tooltip） ──
+  function showIdeaTip(el) {
+    var box = document.getElementById('ideaTip');
+    if (!box) return;
+    var tip = el.getAttribute('data-tip');
+    if (!tip) return;
+    box.textContent = tip;
+    box.style.display = 'block';
+    var r = el.getBoundingClientRect();
+    var bw = box.offsetWidth, bh = box.offsetHeight;
+    var left = Math.min(Math.max(6, r.left), Math.max(6, window.innerWidth - bw - 6));
+    var top = r.bottom + 6;
+    if (top + bh > window.innerHeight - 6) top = Math.max(6, r.top - bh - 6);
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+  }
+  function hideIdeaTip() {
+    var box = document.getElementById('ideaTip');
+    if (box) box.style.display = 'none';
+  }
+  previewEl.addEventListener('mouseover', function(e) {
+    var link = e.target.closest ? e.target.closest('.idea-link') : null;
+    if (link && !penPainting) showIdeaTip(link);
+  });
+  previewEl.addEventListener('mouseout', function(e) {
+    if (e.target.closest && e.target.closest('.idea-link')) hideIdeaTip();
+  });
+  // 触摸端没有 hover：点一下链接同样弹出说明
+  previewEl.addEventListener('click', function(e) {
+    var link = e.target.closest ? e.target.closest('.idea-link') : null;
+    if (link && ideaMode !== 'pen') {
+      if (document.getElementById('ideaTip').style.display === 'block') hideIdeaTip();
+      else showIdeaTip(link);
+    }
+  });
+  previewEl.addEventListener('scroll', hideIdeaTip);
+  document.getElementById('ideasDrawer').addEventListener('scroll', hideIdeaTip);
+
+  // ── 「🔗 说明」：插入悬停说明 ──
+  function ideaInsertLink(label, tip) {
+    if (ideaMode !== 'edit') { ideaMode = 'edit'; ideasApplyMode(); }
+    var ta = document.getElementById('ideasTextarea');
+    var snippet = tip ? ('[[' + label + '|' + tip + ']]') : ('[[' + label + ']]');
+    var start = ta.selectionStart, end = ta.selectionEnd;
+    var val = ta.value || '';
+    ta.value = val.slice(0, start) + snippet + val.slice(end);
+    var caret = start + snippet.length;
+    ta.focus();
+    try { ta.setSelectionRange(caret, caret); } catch(e) {}
+    ideasSavePage();
+  }
+
+  function openIdeaLinkModal() {
+    hideIdeaTip();
+    var sel = '';
+    try {
+      var ta = document.getElementById('ideasTextarea');
+      if (ta.selectionStart !== ta.selectionEnd) {
+        sel = (ta.value || '').slice(ta.selectionStart, ta.selectionEnd).replace(/[\r\n]/g, ' ').trim();
+      }
+    } catch(e) {}
+    document.getElementById('ideaLinkLabel').value = sel;
+    document.getElementById('ideaLinkTip').value = '';
+    document.getElementById('ideaLinkModal').classList.add('show');
+    setTimeout(function() {
+      var t = sel ? document.getElementById('ideaLinkTip') : document.getElementById('ideaLinkLabel');
+      t.focus();
+    }, 40);
+  }
+  function closeIdeaLinkModal() {
+    document.getElementById('ideaLinkModal').classList.remove('show');
+  }
+  document.getElementById('ideasLinkBtn').addEventListener('click', openIdeaLinkModal);
+  document.getElementById('ideaLinkCancel').addEventListener('click', closeIdeaLinkModal);
+  document.getElementById('ideaLinkOk').addEventListener('click', function() {
+    var label = document.getElementById('ideaLinkLabel').value.trim();
+    var tip = document.getElementById('ideaLinkTip').value.trim();
+    if (!label) { alert('请填写要显示的文字'); return; }
+    closeIdeaLinkModal();
+    ideaInsertLink(label, tip);
+  });
+  document.getElementById('ideaLinkModal').addEventListener('click', function(e) {
+    if (e.target === this) closeIdeaLinkModal();   // 点遮罩关闭
+  });
+
+  // 恢复上次的模式与笔色
+  safeCall(function() {
+    try {
+      var m = localStorage.getItem(IDEA_MODE_KEY);
+      if (m === 'pen' || m === 'edit' || m === 'read') ideaMode = m;
+      var c = localStorage.getItem(IDEA_PEN_COLOR_KEY);
+      if (c === 'r' || c === 'y' || c === 'g') ideaPenColor = c;
+    } catch(e) {}
+    ideasApplyMode();
+  }, 'loadIdeasMode');
 
   /* ═══════════════════════════════════════════
    *  课表系统
@@ -3857,7 +4282,12 @@ body {
 
   function isIdeasEditing() {
     var el = document.activeElement;
-    return !!(el && el.id === 'ideasTextarea');
+    if (el && el.id === 'ideasTextarea') return true;
+    // 标记模式下编辑框是隐藏的、永远拿不到焦点，涂抹过程中若被拉取刷新会丢笔画；
+    // 因此把「正在涂抹」以及「停留在标记模式」也视为编辑中，跳过思路刷新。
+    if (penPainting) return true;
+    if (ideaMode === 'pen') return true;
+    return false;
   }
 
   function pullFromTray() {
