@@ -1302,7 +1302,7 @@ body {
 }
 .ideas-close:hover { background: #f0f0f0; color: #333; }
 .ideas-textarea {
-  flex: 1; box-sizing: border-box; width: 100%;
+  flex: 1 1 50%; box-sizing: border-box; width: 100%;
   padding: 14px 16px; border: none; outline: none;
   font-size: 14px; font-family: inherit; line-height: 1.7;
   resize: none; color: #333; background: #fff;
@@ -1371,6 +1371,29 @@ body {
   pointer-events: none; display: none; white-space: pre-wrap; word-break: break-word;
 }
 .ideas-preview-empty { color: #bbb; font-size: 13px; padding: 24px 0; text-align: center; }
+
+/* ── 蜡笔按钮 + 弹出选色面板 ── */
+.ideas-crayon { font-size: 13px; }
+.ideas-pen-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 10007;
+  display: none; gap: 6px; padding: 8px; background: #fff;
+  border: 1px solid #dcdfe6; border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+#ideasPenToggleWrap { position: relative; }
+.ideas-pen-pop.open { display: flex; }
+
+/* ── 合并模式：编辑框 + 实时预览上下分栏 ── */
+.ideas-editor-wrap {
+  flex: 1; min-height: 0; position: relative;
+  display: flex; flex-direction: column;
+  gap: 6px; padding: 10px 12px 4px;
+}
+.ideas-preview.inline {
+  display: block; flex: 1; min-height: 140px;
+  border: 1px solid #e8eaf6; border-radius: 8px; background: #fafbff;
+}
+.ideas-preview.inline.pen-mode { background: #fcfcff; cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -1546,21 +1569,22 @@ body {
         <button class="ideas-today-btn" id="ideasToday" title="回到今天">今天</button>
       </div>
       <div class="ideas-toolbar">
-        <div class="ideas-mode-group">
-          <button class="ideas-mode-btn active" id="ideasModeRead" title="带颜色、可悬停查看说明">📖 阅读</button>
-          <button class="ideas-mode-btn" id="ideasModeEdit" title="纯文本编辑，可直接输入标记语法">✏️ 编辑</button>
-        </div>
-        <div class="ideas-mode-group" id="ideasPenGroup" style="display:none;">
-          <button class="ideas-pen" data-color="r" title="红色 · 又急又重要（再点一次取消）"></button>
-          <button class="ideas-pen" data-color="y" title="黄色 · 重要但不急（再点一次取消）"></button>
-          <button class="ideas-pen" data-color="g" title="绿色 · 不急也不重要（再点一次取消）"></button>
-          <button class="ideas-pen" data-color="e" title="橡皮 · 涂抹清除标记（再点一次取消）" style="background:#fff;color:#999;font-size:12px;line-height:1;">✕</button>
+        <div class="ideas-mode-group" id="ideasPenToggleWrap">
+          <button class="ideas-tool-btn ideas-crayon" id="ideasCrayonBtn" title="蜡笔：点击选颜色，然后涂抹打标记">🖍 蜡笔</button>
+          <div class="ideas-pen-pop" id="ideasPenGroup">
+            <button class="ideas-pen" data-color="r" title="红色 · 又急又重要"></button>
+            <button class="ideas-pen" data-color="y" title="黄色 · 重要但不急"></button>
+            <button class="ideas-pen" data-color="g" title="绿色 · 不急也不重要"></button>
+            <button class="ideas-pen" data-color="e" title="橡皮 · 清除标记" style="background:#fff;color:#999;font-size:12px;line-height:1;">✕</button>
+          </div>
         </div>
         <button class="ideas-tool-btn" id="ideasLinkBtn" title="插入悬停说明">🔗 说明</button>
         <span class="ideas-hint" id="ideasHint"></span>
       </div>
-      <div class="ideas-preview" id="ideasPreview" style="display:none;"></div>
-      <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存到当前日期）" autocomplete="off"></textarea>
+      <div class="ideas-editor-wrap" id="ideasEditorWrap">
+        <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存到当前日期；输入 [[文字|说明]] 立即变成可悬停的链接，双击可改）" autocomplete="off"></textarea>
+        <div class="ideas-preview inline" id="ideasPreview"></div>
+      </div>
     </div>
     <div class="ideas-side">
       <div class="ideas-side-title">日期 / 最后修改</div>
@@ -3305,15 +3329,15 @@ body {
   });
 
   /* ═══════════════════════════════════════════
-   *  思路整理：轻重缓急标记（荧光笔）+ 悬停说明（超链接式）
+   *  思路整理：轻重缓急标记（蜡笔涂抹）+ 悬停说明（实时渲染 + 双击编辑）
    *  ── 不新增任何存储字段，标记与说明都写进 text 正文 ──
-   *   行首标记： [r] 红 / [y] 黄 / [g] 绿   （一行一个，写在行首）
-   *   悬停说明： [[显示文字|详细说明]]      （详细说明可省略）
+   *   行首标记： [r] 红 / [y] 黄 / [g] 绿   （蜡笔涂抹生成，不必手写）
+   *   悬停说明： [[显示文字|详细说明]]      （编辑时实时渲染成蓝色链接，双击可改）
    *  相邻同色的行渲染时自动并成一整块，小球只出现在最前面。
    * ═══════════════════════════════════════════ */
-  var IDEA_MODE_KEY = 'my_ideas_mode';          // 'read' | 'edit' | 'pen'
+  var IDEA_MODE_KEY = 'my_ideas_mode';          // 'edit'（常态） | 'pen'（涂抹中）
   var IDEA_PEN_COLOR_KEY = 'my_ideas_pen_color';
-  var ideaMode = 'read';
+  var ideaMode = 'edit';
   var ideaPenColor = 'r';
   var penPainting = false;
   var penTouched = {};        // {行号: true} 本次涂抹碰到的行
@@ -3332,7 +3356,7 @@ body {
     return { color: '', text: line };
   }
 
-  // 给某一行加/换/去标记（color 传 '' 或 'e' 即清除）
+  // 给某一行加/换/去标记（color 传 'e' 即清除）
   function ideaSetLineColor(lines, idx, color) {
     if (idx < 0 || idx >= lines.length) return;
     var body = ideaParseLine(lines[idx]).text;
@@ -3357,6 +3381,30 @@ body {
     return out;
   }
 
+  // 双击链接编辑：在 textarea 全文里定位被点的链接，并弹出编辑框
+  function openIdeaEditFromEl(linkEl) {
+    if (!linkEl || ideaMode === 'pen') return;
+    hideIdeaTip();
+    var label = linkEl.textContent;
+    var tip = linkEl.getAttribute('data-tip');
+    // 在全文里反查这个 [[label|tip]]（或 [[label]]），取最后一个匹配（接近双击的）
+    var raw = document.getElementById('ideasTextarea').value || '';
+    var pat = new RegExp(
+      '\\[\\[' + ideaEscRe(label) + '(?:\\|' + ideaEscRe(tip) + ')?\\]\\]', 'g');
+    var m, last = null;
+    while ((m = pat.exec(raw)) !== null) last = m;
+    var start = last ? last.index : -1;
+    var end = last ? last.index + last[0].length : -1;
+    ideaEditTarget = (start >= 0) ? { start: start, end: end } : null;
+    document.getElementById('ideaLinkLabel').value = label;
+    document.getElementById('ideaLinkTip').value = (tip === label) ? '' : tip;
+    document.getElementById('ideaLinkModal').classList.add('show');
+    setTimeout(function() { document.getElementById('ideaLinkLabel').focus(); }, 40);
+  }
+  function ideaEscRe(s) {
+    return String(s == null ? '' : s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   function ideasRenderPreview() {
     var box = document.getElementById('ideasPreview');
     if (!box) return;
@@ -3378,7 +3426,7 @@ body {
     var colored = blocks.filter(function(b) { return b.color; }).length;
 
     if (raw.trim() === '') {
-      box.innerHTML = '<div class="ideas-preview-empty">还没有内容，切到「✏️ 编辑」写下第一句吧</div>';
+      box.innerHTML = '<div class="ideas-preview-empty">这里实时预览：写了 [[文字|说明]] 立即变成链接，涂了蜡笔立即显示颜色</div>';
     } else {
       var html = '';
       blocks.forEach(function(b) {
@@ -3405,53 +3453,32 @@ body {
       if (ideaMode === 'pen') {
         if (!ideaPenColor) hint.textContent = '选一支笔再涂抹';
         else if (penPainting) hint.textContent = '松手生效';
-        else hint.textContent = '涂抹打' + (IDEA_PEN_TIP[ideaPenColor] || '') + '标记' +
-               (colored ? ' · 已有 ' + colored + ' 块' : '');
-      } else if (ideaMode === 'read') {
-        hint.textContent = '鼠标放到虚线上看说明';
+        else hint.textContent = '涂' + (IDEA_PEN_TIP[ideaPenColor] || '') + '标记 · 再点蜡笔退出';
       } else {
-        hint.textContent = '[r]红 [y]黄 [g]绿   [[文字|说明]]';
+        hint.textContent = '🖍 蜡笔涂抹 ｜ 🔗 插说明 ｜ 双击链接改内容';
       }
     }
   }
 
-  // ── 模式切换（阅读 / 编辑 / 涂抹） ──
-  function ideasApplyMode() {
-    var readBtn = document.getElementById('ideasModeRead');
-    var editBtn = document.getElementById('ideasModeEdit');
-    var ta = document.getElementById('ideasTextarea');
+  // ── 蜡笔：选色后保持涂抹态（可连续涂多行），再点蜡笔按钮退出 ──
+  function ideasEnterPen() {
+    ideaMode = 'pen';
     var pv = document.getElementById('ideasPreview');
-    var group = document.getElementById('ideasPenGroup');
-    readBtn.classList.toggle('active', ideaMode === 'read');
-    editBtn.classList.toggle('active', ideaMode === 'edit');
-    // 阅读/涂抹模式：隐藏 textarea，显示渲染视图；编辑模式反之
-    ta.style.display = (ideaMode === 'edit') ? '' : 'none';
-    pv.style.display = (ideaMode === 'edit') ? 'none' : '';
-    pv.classList.toggle('pen-mode', ideaMode === 'pen');
-    group.style.display = (ideaMode === 'pen') ? '' : 'none';
-    var pens = group.querySelectorAll('.ideas-pen');
-    for (var i = 0; i < pens.length; i++) {
-      pens[i].classList.toggle('active', pens[i].dataset.color === ideaPenColor);
-    }
-    try { localStorage.setItem(IDEA_MODE_KEY, ideaMode); } catch(e) {}
+    pv.classList.add('pen-mode');
+    try { localStorage.setItem(IDEA_MODE_KEY, 'pen'); } catch(e) {}
     hideIdeaTip();
     ideasRenderPreview();
   }
-
-  function ideasSetMode(mode) {
-    if (mode === ideaMode) return;
+  function ideasExitPen() {
     if (penPainting) { penPainting = false; penTouched = {}; }
-    // 标记模式下会跳过拉取刷新（避免丢笔画）；切走时先落盘再重载，
-    // 让期间合并进来的其它端改动显示出来。
-    var wasPen = (ideaMode === 'pen');
-    ideaMode = (mode === 'pen' || mode === 'read') ? mode : 'edit';
-    if (wasPen) {
-      try { ideasSavePage(); ideasLoadPage(ideasCurrentDate); } catch(e) {}
-    }
-    ideasApplyMode();
+    ideaMode = 'edit';
+    var pv = document.getElementById('ideasPreview');
+    pv.classList.remove('pen-mode');
+    try { localStorage.setItem(IDEA_MODE_KEY, 'edit'); } catch(e) {}
+    try { ideasSavePage(); ideasLoadPage(ideasCurrentDate); } catch(e) {}
+    ideasRenderPreview();
   }
 
-  // ── 荧光笔涂抹 ──
   function ideaPenTouch(idx) {
     if (typeof idx !== 'number' || isNaN(idx) || idx < 0) return;
     if (penTouched[idx]) return;
@@ -3486,23 +3513,50 @@ body {
     });
     ta.value = lines.join('\n');
     penTouched = {};
-    ideasSavePage();          // 落盘（同时刷新预览与右侧列表）
+    ideasSavePage();          // 落盘并刷新预览，但不退出涂抹态（可连续涂）
   }
 
-  // 画笔点选：再点一次同一支笔 = 取消选中（避免误涂）
-  document.getElementById('ideasModeRead').addEventListener('click', function() { ideasSetMode('read'); });
-  document.getElementById('ideasModeEdit').addEventListener('click', function() { ideasSetMode('edit'); });
+  // ── 蜡笔按钮：开关涂抹态 + 弹出选色面板 ──
+  document.getElementById('ideasCrayonBtn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    var pop = document.getElementById('ideasPenGroup');
+    if (ideaMode === 'pen') {
+      // 已在涂抹态：点蜡笔按钮 = 退出涂抹
+      pop.classList.remove('open');
+      ideasExitPen();
+      return;
+    }
+    pop.classList.toggle('open');
+  });
+  // 点面板外关闭
+  document.addEventListener('click', function(e) {
+    var pop = document.getElementById('ideasPenGroup');
+    if (pop.classList.contains('open') &&
+        !e.target.closest('#ideasPenToggleWrap')) {
+      pop.classList.remove('open');
+    }
+  });
   document.getElementById('ideasPenGroup').addEventListener('click', function(e) {
     var btn = e.target.closest('.ideas-pen');
     if (!btn) return;
     var c = btn.dataset.color || '';
-    if (ideaMode !== 'pen') { ideaMode = 'pen'; }
-    ideaPenColor = (ideaPenColor === c) ? '' : c;   // 取消选中 → 无法涂抹
+    if (!c) return;
+    ideaPenColor = c;
     try { localStorage.setItem(IDEA_PEN_COLOR_KEY, ideaPenColor); } catch(e) {}
-    ideasApplyMode();
+    // 选色即收起面板并进入涂抹态（已处于涂抹态则直接换色继续涂）
+    document.getElementById('ideasPenGroup').classList.remove('open');
+    if (ideaMode !== 'pen') ideasEnterPen();
+    ideasRenderPreview();
   });
 
   var previewEl = document.getElementById('ideasPreview');
+  // 双击预览层的链接：弹出编辑框（定位原文位置替换）
+  previewEl.addEventListener('dblclick', function(e) {
+    var link = e.target.closest ? e.target.closest('.idea-link') : null;
+    if (!link) return;
+    e.preventDefault();
+    openIdeaEditFromEl(link);
+  });
   previewEl.addEventListener('mousedown', function(e) {
     if (ideaMode !== 'pen' || ideaPenColor === '' || e.button !== 0) return;
     e.preventDefault();
@@ -3566,15 +3620,26 @@ body {
   previewEl.addEventListener('scroll', hideIdeaTip);
   document.getElementById('ideasDrawer').addEventListener('scroll', hideIdeaTip);
 
-  // ── 「🔗 说明」：插入悬停说明 ──
+  // ── 「🔗 说明」：插入悬停说明（或替换被双击编辑的旧链接） ──
   function ideaInsertLink(label, tip) {
-    if (ideaMode !== 'edit') { ideaMode = 'edit'; ideasApplyMode(); }
+    if (ideaMode !== 'edit') { ideasExitPen(); }
     var ta = document.getElementById('ideasTextarea');
     var snippet = tip ? ('[[' + label + '|' + tip + ']]') : ('[[' + label + ']]');
-    var start = ta.selectionStart, end = ta.selectionEnd;
     var val = ta.value || '';
+    var start, end, caret;
+    if (ideaEditTarget && ideaEditTarget.start >= 0 &&
+        ideaEditTarget.end >= ideaEditTarget.start &&
+        ideaEditTarget.end <= val.length) {
+      // 替换被双击编辑的旧链接
+      start = ideaEditTarget.start; end = ideaEditTarget.end;
+      caret = start + snippet.length;
+    } else {
+      // 普通插入：替换当前选区（无选区则插入光标处）
+      start = ta.selectionStart; end = ta.selectionEnd;
+      caret = start + snippet.length;
+    }
     ta.value = val.slice(0, start) + snippet + val.slice(end);
-    var caret = start + snippet.length;
+    ideaEditTarget = null;   // 用完即清
     ta.focus();
     try { ta.setSelectionRange(caret, caret); } catch(e) {}
     ideasSavePage();
@@ -3582,6 +3647,7 @@ body {
 
   function openIdeaLinkModal() {
     hideIdeaTip();
+    ideaEditTarget = null;   // 手动插说明不涉及替换旧链接
     var sel = '';
     try {
       var ta = document.getElementById('ideasTextarea');
@@ -3613,15 +3679,17 @@ body {
     if (e.target === this) closeIdeaLinkModal();   // 点遮罩关闭
   });
 
-  // 恢复上次的模式与笔色
+  // 恢复上次的笔色；模式固定为编辑（预览始终可见）
   safeCall(function() {
     try {
-      var m = localStorage.getItem(IDEA_MODE_KEY);
-      if (m === 'pen' || m === 'edit' || m === 'read') ideaMode = m;
       var c = localStorage.getItem(IDEA_PEN_COLOR_KEY);
       if (c === 'r' || c === 'y' || c === 'g') ideaPenColor = c;
+      var m = localStorage.getItem(IDEA_MODE_KEY);
+      if (m === 'pen') { /* 上次在涂抹态，这次仍从编辑态开始，避免误涂 */ }
+      localStorage.setItem(IDEA_MODE_KEY, 'edit');
     } catch(e) {}
-    ideasApplyMode();
+    ideaMode = 'edit';
+    ideasRenderPreview();
   }, 'loadIdeasMode');
 
   /* ═══════════════════════════════════════════

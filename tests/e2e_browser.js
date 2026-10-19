@@ -118,11 +118,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
                 document.getElementById('ideasDrawer').getBoundingClientRect().width > 0; true`);
   check(await evalJs(`document.getElementById('ideasDrawer').classList.contains('open')`), '思路抽屉已打开');
   check(await evalJs(`!!document.getElementById('ideasPreview')`), '预览容器存在');
-  check(await evalJs(`!!document.getElementById('ideasModeRead') && !!document.getElementById('ideasPenGroup')`),
-        '阅读/编辑/画笔工具条已就位');
+  check(await evalJs(`!!document.getElementById('ideasCrayonBtn') && !!document.getElementById('ideasPenGroup')`),
+        '蜡笔按钮与选色面板已就位');
 
-  // ── 2. 写入内容并进入标记模式 ──
-  console.log('\n── 2. 输入内容 / 渲染预览 ──');
+  // ── 2. 写入内容并渲染预览（合并模式：编辑 + 实时预览同屏） ──
+  console.log('\n── 2. 输入内容 / 实时渲染预览 ──');
   const content = ['[r] 今天必须交的实验报告', '记得问老师 [[评分标准|实验报告占平时分 40%，迟交扣 10%]]', '', '看剧', '打游戏'].join('\n');
   const wantText = content;
   await evalJs(`document.getElementById('ideasTextarea').value = ${JSON.stringify(content)}; true`);
@@ -149,37 +149,49 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         '原始标记语法不出现在渲染结果里');
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n').length === 5`),
         '正文仍是 5 行（存储未丢行）');
+  check(await evalJs(`document.getElementById('ideasPreview').style.display !== 'none' &&
+                      document.getElementById('ideasTextarea').style.display !== 'none'`),
+        '合并模式：编辑框与预览同屏显示（不用切阅读）');
 
-  // ── 3. 真实鼠标涂抹打标记 ──
-  console.log('\n── 3. 荧光笔涂抹（真实鼠标事件）──');
-  // 进标记模式：点一支颜色笔（点笔即进入标记模式）
-  await evalJs(`document.querySelector('.ideas-pen[data-color="g"]').click(); true`);
+  // ── 3. 蜡笔涂抹打标记（新交互） ──
+  console.log('\n── 3. 蜡笔选色涂抹 ──');
+  // 点蜡笔按钮 → 面板弹出
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
   await sleep(300);
-  check(await evalJs(`document.getElementById('ideasTextarea').style.display === 'none' &&
-                      document.getElementById('ideasPreview').style.display !== 'none'`),
-        '标记模式：编辑框隐藏、预览显示');
-  check(await evalJs(`document.querySelector('.ideas-pen[data-color="g"]').classList.contains('active')`),
-        '绿色画笔已选中');
+  check(await evalJs(`document.getElementById('ideasPenGroup').classList.contains('open')`), '蜡笔面板已弹出');
+  // 点绿色笔 → 面板收起 + 进入涂抹态
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="g"]').click(); true`);
+  await sleep(300);
+  check(await evalJs(`document.getElementById('ideasPreview').classList.contains('pen-mode')`),
+        '选色后面板收起、预览进入涂抹态');
+  check(await evalJs(`document.getElementById('ideasPenGroup').classList.contains('open') === false`), '选色后面板已收起');
 
   // 第 4、5 行（看剧、打游戏）涂绿 —— 相邻两行应合并成一块
-  const rects = await evalJs(`(function(){
+  async function getLineRects() {
+    const rects = await evalJs(`(function(){
       var els=document.querySelectorAll('#ideasPreview .idea-line');
       var out=[];
       for (var i=0;i<els.length;i++){ var r=els[i].getBoundingClientRect();
         out.push({i:i,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}); }
       return JSON.stringify(out);
     })()`);
-  const lines = JSON.parse(rects);
+    return JSON.parse(rects);
+  }
+  let lines = await getLineRects();
   console.log('     行坐标:', lines.map(l => l.i + '@' + l.y).join(', '));
 
   async function paintLine(i) {
-    const p = lines[i];
+    // 涂抹中会实时高亮并落盘重绘，坐标可能有微小变化，每次取最新
+    const fresh = await getLineRects();
+    const p = fresh[i];
     await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', clickCount: 1 });
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'left' });
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', clickCount: 1 });
     await sleep(350);
   }
   await paintLine(3);
+  check(await evalJs(`document.getElementById('ideasPreview').classList.contains('pen-mode')`),
+        '涂完仍保持涂抹态（可连续涂抹）');
   await paintLine(4);
 
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[g] 看剧'`),
@@ -192,26 +204,31 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         '合并块只有 1 个小球');
   check(await evalJs(`document.querySelectorAll('#ideasPreview .idea-ball').length === 2`),
         '全页共 2 个小球（红 1 + 绿 1）');
+  // 仍在涂抹态：点蜡笔按钮退出
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(300);
+  check(await evalJs(`document.getElementById('ideasPreview').classList.contains('pen-mode') === false`),
+        '再点蜡笔按钮退出涂抹态（回到编辑）');
 
-  // 橡皮擦掉红色
-  await evalJs(`document.querySelector('.ideas-pen[data-color="e"]').click(); true`);
+  // 再开蜡笔选橡皮擦掉红色
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="e"]').click(); true`);
   await sleep(200);
   await paintLine(0);
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[0] === '今天必须交的实验报告'`),
         '橡皮涂抹 → 标记被清除');
   check(await evalJs(`document.querySelectorAll('#ideasPreview .idea-block.idea-red').length === 0`),
         '红色块已消失');
-  // 再点一次橡皮 → 取消选中，涂不动
-  await evalJs(`document.querySelector('.ideas-pen[data-color="e"]').click(); true`);
+  // 退出涂抹态
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
   await sleep(200);
-  await paintLine(3);
-  check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[g] 看剧'`),
-        '取消选中画笔后再涂抹不生效（防误涂）');
 
-  // ── 3b. 给已有色块换色 ──
+  // ── 3b. 换色 / 点击色块整块处理 ──
   console.log('\n── 3b. 换色 / 点击色块整块处理 ──');
-  // 选中红色，涂“看剧”所在行 → 该行应由绿变红，块随之拆开
-  await evalJs(`document.querySelector('.ideas-pen[data-color="r"]').click(); true`);
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="r"]').click(); true`);
   await sleep(200);
   await paintLine(3);
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[r] 看剧'`),
@@ -223,10 +240,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         '原绿块拆成 红1 + 绿1 两块');
 
   // 点色块的小球（非文字行）→ 整块一起处理
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="y"]').click(); true`);
+  await sleep(200);
   const ball = JSON.parse(await evalJs(`(function(){ var b=document.querySelector('#ideasPreview .idea-block.idea-green .idea-ball');
       var r=b.getBoundingClientRect(); return JSON.stringify({x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)}); })()`));
-  await evalJs(`document.querySelector('.ideas-pen[data-color="y"]').click(); true`);
-  await sleep(200);
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: ball.x, y: ball.y, button: 'left', clickCount: 1 });
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: ball.x, y: ball.y, button: 'left' });
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: ball.x, y: ball.y, button: 'left', clickCount: 1 });
@@ -234,14 +253,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[4] === '[y] 打游戏'`),
         '点色块小球 → 整块一起换色（点一下即可）');
 
-  // 截图（涂抹模式，绿色块）
+  // 截图（涂抹后的渲染效果）
   let shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT, 'pen-mode.png'), Buffer.from(shot.result.data, 'base64'));
 
   // ── 4. 悬停说明 ──
   console.log('\n── 4. 悬停说明（tooltip）──');
-  await evalJs(`document.getElementById('ideasModeRead').click(); true`);
-  await sleep(300);
   const linkRect = await evalJs(`(function(){ var r=document.querySelector('#ideasPreview .idea-link').getBoundingClientRect();
       return JSON.stringify({x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)}); })()`);
   const lp = JSON.parse(linkRect);
@@ -261,8 +278,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // ── 5. 🔗 说明弹窗插入 ──
   console.log('\n── 5. 🔗 说明按钮 ──');
-  await evalJs(`document.getElementById('ideasModeEdit').click(); true`);
-  await sleep(200);
   await evalJs(`document.getElementById('ideasLinkBtn').click(); true`);
   await sleep(300);
   check(await evalJs(`document.getElementById('ideaLinkModal').classList.contains('show')`), '说明弹窗已弹出');
@@ -273,12 +288,29 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(await evalJs(`document.getElementById('ideasTextarea').value.indexOf('[[我的笔记|这是三个月后的自己才需要的背景]]') !== -1`),
         '弹窗内容已插入正文');
   check(await evalJs(`document.getElementById('ideaLinkModal').classList.contains('show') === false`), '弹窗已关闭');
-
-  // 切到阅读模式，确认新链接可悬停
-  await evalJs(`document.getElementById('ideasModeRead').click(); true`);
-  await sleep(300);
   check(await evalJs(`document.querySelectorAll('#ideasPreview .idea-link').length === 2`),
-        '阅读模式渲染出 2 个说明链接');
+        '插入后预览立即渲染出 2 个说明链接（不用切模式）');
+
+  // ── 5b. 双击链接编辑 ──
+  console.log('\n── 5b. 双击链接重新编辑 ──');
+  const link2 = JSON.parse(await evalJs(`(function(){ var els=document.querySelectorAll('#ideasPreview .idea-link');
+      var r=els[1].getBoundingClientRect(); return JSON.stringify({x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)}); })()`));
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: link2.x, y: link2.y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: link2.x, y: link2.y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: link2.x, y: link2.y, button: 'left', clickCount: 2 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: link2.x, y: link2.y, button: 'left', clickCount: 2 });
+  await sleep(400);
+  check(await evalJs(`document.getElementById('ideaLinkModal').classList.contains('show')`), '双击链接 → 编辑弹窗弹出');
+  check(await evalJs(`document.getElementById('ideaLinkLabel').value === '我的笔记'`), '弹窗预填了链接显示文字');
+  check(await evalJs(`document.getElementById('ideaLinkTip').value === '这是三个月后的自己才需要的背景'`), '弹窗预填了链接说明');
+  await evalJs(`document.getElementById('ideaLinkLabel').value='改后的标题';
+                document.getElementById('ideaLinkTip').value='改后的说明';
+                document.getElementById('ideaLinkOk').click(); true`);
+  await sleep(300);
+  check(await evalJs(`document.getElementById('ideasTextarea').value.indexOf('[[改后的标题|改后的说明]]') !== -1`),
+        '编辑后正文更新为新链接');
+  check(await evalJs(`document.getElementById('ideasTextarea').value.indexOf('[[我的笔记|') === -1`),
+        '旧链接已被替换（不残留）');
   shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT, 'read-mode.png'), Buffer.from(shot.result.data, 'base64'));
 
@@ -292,7 +324,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(rec && Object.keys(rec).sort().join(',') === 'text,ts', '记录字段仍只有 text,ts');
   check(rec.text.indexOf('[r] 看剧') !== -1, '落盘内容含涂抹结果（红色）');
   check(rec.text.indexOf('[y] 打游戏') !== -1, '落盘内容含换色结果（黄色）');
-  check(rec.text.indexOf('[[我的笔记|') !== -1, '落盘内容含说明语法');
+  check(rec.text.indexOf('[[改后的标题|改后的说明]]') !== -1, '落盘内容含说明语法（双击编辑后的链接）');
 
   // 备份机制（saveWithBackup 会写 _backups）
   const bk = await evalJs(`localStorage.getItem('my_ideas_backups')`);

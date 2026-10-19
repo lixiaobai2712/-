@@ -86,12 +86,13 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 .ideas-date-row .date-label { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ideas-date-row .today { flex-shrink: 0; height: 32px; border: 1px solid #5c6bc0; border-radius: 8px; background: #5c6bc0; color: #fff; font-size: 13px; padding: 0 10px; }
 .ideas-date-row .today:disabled { opacity: 0.45; }
-.ideas-textarea { width: 100%; min-height: 180px; flex: 1; border: 1px solid #eee; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.7; outline: none; resize: none; font-family: inherit; box-sizing: border-box; }
-/* ── 思路：轻重缓急标记 + 悬停说明 ── */
+.ideas-textarea { width: 100%; min-height: 140px; flex: 1 1 50%; border: 1px solid #eee; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.7; outline: none; resize: none; font-family: inherit; box-sizing: border-box; }
+/* ── 思路：蜡笔选色 + 实时预览 ── */
 .ideas-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .ideas-seg { display: flex; border: 1px solid #dcdfe6; border-radius: 8px; overflow: hidden; }
 .ideas-seg button { border: none; background: #fff; color: #666; font-size: 12px; padding: 6px 10px; }
 .ideas-seg button.active { background: #5c6bc0; color: #fff; }
+.ideas-crayon { font-size: 13px; }
 .ideas-pen { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #dcdfe6; padding: 0; flex-shrink: 0; }
 .ideas-pen[data-color="r"] { background: #ff5252; }
 .ideas-pen[data-color="y"] { background: #ffc107; }
@@ -103,6 +104,8 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 .ideas-hint { font-size: 11px; color: #aaa; margin-left: auto; }
 .ideas-preview { flex: 1; overflow-y: auto; border: 1px solid #eee; border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.7; color: #333; }
 .ideas-preview.pen-mode { background: #fcfcff; }
+.ideas-editor-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.ideas-editor-wrap .ideas-preview { min-height: 120px; background: #fafbff; }
 .idea-block { position: relative; border-radius: 6px; padding: 2px 2px; }
 .idea-block.idea-red, .idea-block.idea-yellow, .idea-block.idea-green { padding-left: 20px; }
 .idea-block.idea-red { background: #ffe8e8; box-shadow: inset 3px 0 0 #ff5252; }
@@ -208,9 +211,8 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
         <button class="today" id="ideasToday">今天</button>
       </div>
       <div class="ideas-toolbar">
-        <div class="ideas-seg">
-          <button class="active" id="mIdeasModeRead">📖 阅读</button>
-          <button id="mIdeasModeEdit">✏️ 编辑</button>
+        <div class="ideas-seg" id="mIdeasPenToggleWrap">
+          <button class="ideas-toolbtn ideas-crayon" id="mIdeasCrayonBtn">🖍 蜡笔</button>
         </div>
         <div class="ideas-seg" id="mIdeasPenGroup" style="display:none;">
           <button class="ideas-pen" data-color="r" title="红色"></button>
@@ -221,8 +223,10 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
         <button class="ideas-toolbtn" id="mIdeasLinkBtn">🔗 说明</button>
         <span class="ideas-hint" id="mIdeasHint"></span>
       </div>
-      <div class="ideas-preview" id="mIdeasPreview" style="display:none;"></div>
-      <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存到当前日期）"></textarea>
+      <div class="ideas-editor-wrap">
+        <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存；输入 [[文字|说明]] 立即变成链接，点按看说明、双击改内容）"></textarea>
+        <div class="ideas-preview" id="mIdeasPreview" style="display:none;"></div>
+      </div>
     </div>
     <div class="ideas-side">
       <div class="ideas-side-title">日期 / 最后修改</div>
@@ -1293,9 +1297,9 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
    *   行首标记 [r]/[y]/[g]；说明 [[显示文字|详细说明]]
    *   手机没有鼠标：点一下行即为“涂上”当前选中的颜色。
    * ═══════════════════════════════════════════ */
-  var M_IDEA_MODE_KEY = 'mobile_ideas_mode';
+  var M_IDEA_MODE_KEY = 'mobile_ideas_mode';   // 'edit'（常态） | 'pen'（涂抹中）
   var M_IDEA_PEN_KEY = 'mobile_ideas_pen_color';
-  var MIdeaMode = 'read';
+  var MIdeaMode = 'edit';
   var MIdeaPen = 'r';
 
   var M_MARK_RE = /^[ \t]*\[([rygRYG])\][ \t]*/;
@@ -1367,23 +1371,20 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 
     var hint = document.getElementById('mIdeasHint');
     if (hint) {
-      if (MIdeaMode === 'pen') hint.textContent = '点一下行即可上色' + (colored ? ' · ' + colored + ' 块' : '');
-      else if (MIdeaMode === 'read') hint.textContent = '点虚线上看说明';
-      else hint.textContent = '[r][y][g]  [[文字|说明]]';
+      if (MIdeaMode === 'pen') hint.textContent = '点一下行即可上色 · 再点蜡笔退出' + (colored ? ' · ' + colored + ' 块' : '');
+      else hint.textContent = '🖍 蜡笔涂抹 ｜ 点链接看说明 ｜ 双击改内容';
     }
   }
 
+  // 合并模式：编辑 + 实时预览同屏；蜡笔选色进入涂抹态（点按上色），再点蜡笔退出
   function mIdeasApplyMode() {
-    var readBtn = document.getElementById('mIdeasModeRead');
-    var editBtn = document.getElementById('mIdeasModeEdit');
     var ta = document.getElementById('ideasTextarea');
     var pv = document.getElementById('mIdeasPreview');
-    var group = document.getElementById('mIdeasPenGroup');
-    readBtn.classList.toggle('active', MIdeaMode === 'read');
-    editBtn.classList.toggle('active', MIdeaMode === 'edit');
-    ta.style.display = (MIdeaMode === 'edit') ? '' : 'none';
-    pv.style.display = (MIdeaMode === 'edit') ? 'none' : 'block';
+    // 常态=编辑（textarea+预览同屏）；涂抹态=预览作为画布
+    ta.style.display = (MIdeaMode === 'pen') ? 'none' : '';
+    pv.style.display = (MIdeaMode === 'pen') ? '' : '';
     pv.classList.toggle('pen-mode', MIdeaMode === 'pen');
+    var group = document.getElementById('mIdeasPenGroup');
     group.style.display = (MIdeaMode === 'pen') ? '' : 'none';
     var pens = group.querySelectorAll('.ideas-pen');
     for (var i = 0; i < pens.length; i++) {
@@ -1394,19 +1395,13 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     mIdeasRenderPreview();
   }
 
-  function mIdeasSetMode(mode) {
-    if (mode === MIdeaMode) return;
-    MIdeaMode = (mode === 'pen' || mode === 'read') ? mode : 'edit';
-    mIdeasApplyMode();
-  }
-
   // 点一下行 = 上色（手机无鼠标，不做拖拽涂抹）
   function mIdeaPaintLine(idx) {
     var ta = document.getElementById('ideasTextarea');
     var lines = (ta.value || '').split('\n');
     mIdeaSetLineColor(lines, idx, MIdeaPen);
     ta.value = lines.join('\n');
-    ideasSavePage();     // 内部会刷新右侧列表
+    ideasSavePage();     // 内部会刷新右侧列表与预览
   }
 
   function hideMIdeaTip() {
@@ -1431,15 +1426,27 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     t.style.right = 'auto';
   }
 
-  document.getElementById('mIdeasModeRead').addEventListener('click', function() { mIdeasSetMode('read'); });
-  document.getElementById('mIdeasModeEdit').addEventListener('click', function() { mIdeasSetMode('edit'); });
+  // ── 蜡笔按钮：开关涂抹态 + 弹出选色 ──
+  document.getElementById('mIdeasCrayonBtn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    var pop = document.getElementById('mIdeasPenGroup');
+    if (MIdeaMode === 'pen') {
+      pop.style.display = 'none';
+      MIdeaMode = 'edit';
+      mIdeasApplyMode();
+      return;
+    }
+    pop.style.display = pop.style.display === 'none' ? '' : 'none';
+  });
   document.getElementById('mIdeasPenGroup').addEventListener('click', function(e) {
     var btn = e.target.closest('.ideas-pen');
     if (!btn) return;
     var c = btn.dataset.color || '';
-    if (MIdeaMode !== 'pen') MIdeaMode = 'pen';
-    MIdeaPen = (MIdeaPen === c) ? '' : c;   // 再点一次取消选中
+    if (!c) return;
+    MIdeaPen = c;
     try { localStorage.setItem(M_IDEA_PEN_KEY, MIdeaPen); } catch(e) {}
+    if (MIdeaMode !== 'pen') MIdeaMode = 'pen';
+    document.getElementById('mIdeasPenGroup').style.display = 'none';
     mIdeasApplyMode();
   });
   document.getElementById('mIdeasPreview').addEventListener('click', function(e) {
@@ -1484,13 +1491,13 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   }
   document.getElementById('mIdeasLinkBtn').addEventListener('click', mIdeasInsertLink);
 
-  // 恢复上次的模式与笔色
+  // 恢复上次的笔色；模式固定为编辑（预览始终可见）
   try {
-    var mm = localStorage.getItem(M_IDEA_MODE_KEY);
-    if (mm === 'pen' || mm === 'edit' || mm === 'read') MIdeaMode = mm;
     var mc = localStorage.getItem(M_IDEA_PEN_KEY);
     if (mc === 'r' || mc === 'y' || mc === 'g') MIdeaPen = mc;
+    localStorage.setItem(M_IDEA_MODE_KEY, 'edit');
   } catch(e) {}
+  MIdeaMode = 'edit';
   mIdeasApplyMode();
 
   // ═══════════════════════ 事件绑定 ═══════════════════════

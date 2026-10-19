@@ -75,11 +75,13 @@ const getJson = url => new Promise((res, rej) => http.get(url, r => { let d = ''
   check(await evalJs(`document.querySelectorAll('#mIdeasPreview .idea-ball').length === 1`), '小球 1 个');
   check(await evalJs(`document.querySelectorAll('#mIdeasPreview .idea-link').length === 1`), '说明链接 1 个');
 
-  console.log('\n── 3. 点按打标记（手机交互）──');
-  await evalJs(`document.querySelector('.ideas-pen[data-color="g"]').click(); true`);
+  console.log('\n── 3. 蜡笔点按打标记（手机交互）──');
+  await evalJs(`document.getElementById('mIdeasCrayonBtn').click(); true`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#mIdeasPenGroup .ideas-pen[data-color="g"]').click(); true`);
   await sleep(300);
-  check(await evalJs(`document.getElementById('ideasTextarea').style.display === 'none'`), '标记模式隐藏编辑框');
-  check(await evalJs(`document.getElementById('mIdeasPenGroup').style.display !== 'none'`), '画笔组显示');
+  check(await evalJs(`document.getElementById('ideasTextarea').style.display === 'none'`), '涂抹态隐藏编辑框');
+  check(await evalJs(`document.getElementById('mIdeasPreview').style.display !== 'none'`), '涂抹态预览作为画布');
 
   // 点第 4、5 行（看剧、打游戏）
   const lines = JSON.parse(await evalJs(`JSON.stringify(Array.prototype.map.call(
@@ -100,15 +102,21 @@ const getJson = url => new Promise((res, rej) => http.get(url, r => { let d = ''
   let shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT, 'mobile-pen.png'), Buffer.from(shot.result.data, 'base64'));
 
-  // 橡皮
-  await evalJs(`document.querySelector('.ideas-pen[data-color="e"]').click(); true`);
+  // 再点蜡笔退出涂抹态
+  await evalJs(`document.getElementById('mIdeasCrayonBtn').click(); true`);
+  await sleep(250);
+
+  // 橡皮（重新进蜡笔选橡皮）
+  await evalJs(`document.getElementById('mIdeasCrayonBtn').click(); true`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#mIdeasPenGroup .ideas-pen[data-color="e"]').click(); true`);
   await sleep(250);
   await tap(0);
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[0] === '急着交的报告'`), '橡皮点按 → 清除标记');
+  await evalJs(`document.getElementById('mIdeasCrayonBtn').click(); true`);
+  await sleep(200);
 
   console.log('\n── 4. 点链接看说明 ──');
-  await evalJs(`document.getElementById('mIdeasModeRead').click(); true`);
-  await sleep(350);
   const lp = JSON.parse(await evalJs(`(function(){ var r=document.querySelector('#mIdeasPreview .idea-link').getBoundingClientRect();
       return JSON.stringify({x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)}); })()`));
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: lp.x, y: lp.y, button: 'left', clickCount: 1 });
