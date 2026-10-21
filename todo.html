@@ -1301,12 +1301,28 @@ body {
   cursor: pointer; padding: 4px 6px; border-radius: 6px;
 }
 .ideas-close:hover { background: #f0f0f0; color: #333; }
-.ideas-textarea {
-  flex: 1 1 50%; box-sizing: border-box; width: 100%;
+.ideas-editor {
+  flex: 1; box-sizing: border-box; width: 100%;
   padding: 14px 16px; border: none; outline: none;
   font-size: 14px; font-family: inherit; line-height: 1.7;
-  resize: none; color: #333; background: #fff;
+  overflow-y: auto; color: #333; background: #fff;
+  white-space: pre-wrap; word-break: break-word;
 }
+.ideas-editor:empty::before {
+  content: attr(data-placeholder); color: #bbb; pointer-events: none;
+}
+.ideas-editor.pen-mode { cursor: crosshair; background: #fcfcff; }
+.ideas-editor .idea-line { min-height: 1.7em; border-radius: 4px; }
+.ideas-editor .idea-line.pen-hit { box-shadow: inset 0 0 0 2px #5c6bc0; }
+.ideas-editor .idea-block { border-radius: 6px; padding: 1px 2px; }
+.ideas-editor .idea-block.idea-red, .ideas-editor .idea-block.idea-yellow, .ideas-editor .idea-block.idea-green { padding-left: 18px; }
+.ideas-editor .idea-block.idea-red { background: #ffe8e8; box-shadow: inset 3px 0 0 #ff5252; }
+.ideas-editor .idea-block.idea-yellow { background: #fff7d9; box-shadow: inset 3px 0 0 #ffc107; }
+.ideas-editor .idea-block.idea-green { background: #e6f7e9; box-shadow: inset 3px 0 0 #4caf50; }
+.ideas-editor .idea-ball { position: absolute; left: 4px; top: 0.72em; width: 9px; height: 9px; border-radius: 50%; }
+.ideas-editor .idea-block.idea-red .idea-ball { background: #ff5252; }
+.ideas-editor .idea-block.idea-yellow .idea-ball { background: #ffc107; }
+.ideas-editor .idea-block.idea-green .idea-ball { background: #4caf50; }
 
 /* ─── 思路：轻重缓急标记（红黄绿）与悬停说明 ─── */
 .ideas-toolbar {
@@ -1336,11 +1352,6 @@ body {
 .ideas-tool-btn:hover { background: #eef1ff; color: #3949ab; }
 .ideas-tool-btn.active { background: #5c6bc0; color: #fff; border-color: #5c6bc0; }
 .ideas-hint { font-size: 11px; color: #aaa; margin-left: auto; white-space: nowrap; }
-.ideas-preview {
-  flex: 1; overflow-y: auto; padding: 10px 12px;
-  font-size: 14px; line-height: 1.7; color: #333; background: #fff;
-}
-.ideas-preview.pen-mode { cursor: crosshair; user-select: none; -webkit-user-select: none; }
 .idea-block {
   position: relative; border-radius: 6px;
   padding: 1px 2px; margin: 1px 0;
@@ -1370,7 +1381,6 @@ body {
   padding: 8px 10px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   pointer-events: none; display: none; white-space: pre-wrap; word-break: break-word;
 }
-.ideas-preview-empty { color: #bbb; font-size: 13px; padding: 24px 0; text-align: center; }
 
 /* ── 蜡笔按钮 + 弹出选色面板 ── */
 .ideas-crayon { font-size: 13px; }
@@ -1383,17 +1393,12 @@ body {
 #ideasPenToggleWrap { position: relative; }
 .ideas-pen-pop.open { display: flex; }
 
-/* ── 合并模式：编辑框 + 实时预览上下分栏 ── */
+/* ── 单区域编辑（contenteditable 所见即所得） ── */
 .ideas-editor-wrap {
   flex: 1; min-height: 0; position: relative;
   display: flex; flex-direction: column;
-  gap: 6px; padding: 10px 12px 4px;
+  padding: 10px 12px 4px;
 }
-.ideas-preview.inline {
-  display: block; flex: 1; min-height: 140px;
-  border: 1px solid #e8eaf6; border-radius: 8px; background: #fafbff;
-}
-.ideas-preview.inline.pen-mode { background: #fcfcff; cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -1582,8 +1587,9 @@ body {
         <span class="ideas-hint" id="ideasHint"></span>
       </div>
       <div class="ideas-editor-wrap" id="ideasEditorWrap">
-        <textarea class="ideas-textarea" id="ideasTextarea" placeholder="随手记录思路、灵感、复盘...（自动保存到当前日期；输入 [[文字|说明]] 立即变成可悬停的链接，双击可改）" autocomplete="off"></textarea>
-        <div class="ideas-preview inline" id="ideasPreview"></div>
+        <textarea id="ideasTextarea" style="display:none;" aria-hidden="true"></textarea>
+        <div class="ideas-editor ideas-editable" id="ideasEditor" contenteditable="true"
+             data-placeholder="随手记录思路、灵感、复盘... 输入 [[文字|说明]] 就地变成链接，双击可改；🖍 蜡笔涂抹打标记"></div>
       </div>
     </div>
     <div class="ideas-side">
@@ -3239,25 +3245,27 @@ body {
   }
 
   function ideasLoadPage(date) {
-    // 载入指定日期的内容（只更新左编辑区与右侧列表，不跳页）
+    // 载入指定日期的内容（只更新编辑区与右侧列表，不跳页）
     ideasCurrentDate = date;
     var store = loadIdeasStore();
     var rec = store[date];
     var text = (rec && typeof rec.text === 'string') ? rec.text : '';
     document.getElementById('ideasTextarea').value = text;
+    ideaRenderIntoEditor();
     var isToday = (date === todayStr());
     document.getElementById('ideasDateLabel').textContent =
       isToday ? ('今天 · ' + date) : date;
     document.getElementById('ideasToday').disabled = isToday;
     try { localStorage.setItem(IDEAS_POS_KEY, date); } catch(e) {}
     ideasRenderList();
-    safeCall(ideasRenderPreview, 'ideasRenderPreview');
   }
 
   function ideasSavePage() {
     // 存到“当前选中的日期”（编辑旧日期不会新建日期），更新最后修改时间
     var store = loadIdeasStore();
-    var val = document.getElementById('ideasTextarea').value;
+    var ta = document.getElementById('ideasTextarea');
+    // 真源始终是隐藏 textarea（由 contenteditable input 事件同步进来）
+    var val = ta.value;
     if (val.trim() === '') {
       delete store[ideasCurrentDate];
     } else {
@@ -3268,7 +3276,6 @@ body {
     }
     ideasSaveStore(store);
     ideasRenderList();
-    ideasRenderPreview();
   }
 
   function ideasGoToday() {
@@ -3311,12 +3318,32 @@ body {
 
   document.getElementById('ideasToggle').addEventListener('click', toggleIdeas);
   document.getElementById('ideasClose').addEventListener('click', toggleIdeas);
-  document.getElementById('ideasTextarea').addEventListener('input', function() {
+  // contenteditable 是唯一输入区：输入时同步真源，语法闭合（]] 或行首标记）后重排
+  document.getElementById('ideasEditor').addEventListener('input', function() {
     clearTimeout(ideasTimer);
+    var ta = document.getElementById('ideasTextarea');
+    if (!ta) return;
+    var plain = ideaEdPlainText();
+    // 自愈：编辑器为空但真源有内容（如初始化渲染未跟上）→ 用真源重排，别清空真源
+    if (plain.trim() === '' && ta.value && ta.value.trim() !== '') {
+      ideaRenderIntoEditor();
+      return;
+    }
+    ta.value = plain;
+    // 链接闭合（出现 ]]）或行首标记出现时，重排一次让效果就位
+    if (/\]\]/.test(ta.value || '') || /(^|\n)[ \t]*\[[rygRYG]\][ \t]?/.test(ta.value || '')) {
+      var caret = ideaSaveCaret();
+      ideaRenderIntoEditor();
+      ideaRestoreCaret(caret);
+    }
     ideasTimer = setTimeout(saveIdeas, 300);
-    safeCall(ideasRenderPreview, 'ideasPreviewOnInput');
   });
-  document.getElementById('ideasTextarea').addEventListener('blur', saveIdeas);
+  document.getElementById('ideasEditor').addEventListener('blur', function() {
+    var ta = document.getElementById('ideasTextarea');
+    if (ta) ta.value = ideaEdPlainText();
+    ideaRenderIntoEditor();
+    saveIdeas();
+  });
   document.getElementById('ideasToday').addEventListener('click', ideasGoToday);
   // 右侧日期列表：点击切换（手动），切换前先存档当前页
   document.getElementById('ideasDateList').addEventListener('click', function(e) {
@@ -3405,49 +3432,159 @@ body {
     return String(s == null ? '' : s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  function ideasRenderPreview() {
-    var box = document.getElementById('ideasPreview');
-    if (!box) return;
-    var raw = document.getElementById('ideasTextarea').value || '';
-    var lines = raw.split('\n');
-    penLineEls = {};
+  // ── contenteditable 单区域：显示/输入层 + 隐藏 textarea 真源 ──
+  // 视觉上只有一个可编辑区域；真实语法文本存于隐藏 textarea（数据层不变）。
+  function ideaEditorEl() { return document.getElementById('ideasEditor'); }
 
-    // 相邻同色的行合并成一整块（小球只画在块首）
-    var blocks = [];
+  // contenteditable 的纯文本（保留换行）——输入时的真源同步
+  // 按行 DOM 遍历：链接 span 用 data-raw 还原语法，行间加 \n，不依赖换行正则
+  function ideaEdPlainText() {
+    var ed = ideaEditorEl();
+    if (!ed) return '';
+    var out = [];
+    var lineEls = ed.querySelectorAll('.idea-line');
+    for (var i = 0; i < lineEls.length; i++) {
+      out.push(ideaLineText(lineEls[i]));
+    }
+    // 兜底：编辑器里还没有 .idea-line（用户刚输入未重排），按 innerText 取
+    if (out.length === 0) return (ed.innerText || '').replace(/^\n+|\n+$/g, '');
+    return out.join('\n');
+  }
+  // 取单行文本：链接 span 用 data-raw 还原语法，行首标记用 data-prefix 恢复，其余取纯文本
+  function ideaLineText(lineEl) {
+    var tmp = document.createElement('div');
+    tmp.appendChild(lineEl.cloneNode(true));
+    var links = tmp.querySelectorAll('.idea-link');
+    for (var i = links.length - 1; i >= 0; i--) {
+      var raw = links[i].getAttribute('data-raw');
+      var frag = document.createRange().createContextualFragment(raw);
+      links[i].parentNode.replaceChild(frag, links[i]);
+    }
+    var prefix = lineEl.getAttribute && lineEl.getAttribute('data-prefix');
+    return (prefix || '') + (tmp.textContent || '');
+  }
+
+  // 把隐藏 textarea 的语法文本渲染进 contenteditable（行首标记→色块，[[..]]→链接）
+  function ideaRenderIntoEditor() {
+    var ed = ideaEditorEl();
+    var ta = document.getElementById('ideasTextarea');
+    if (!ed || !ta) return;
+    ed.innerHTML = ideaBuildEditableHtml(ta.value || '');
+    // 重建涂抹用的行索引（data-line），供 ideaPenTouch/ideaPenHit 使用
+    penLineEls = {};
+    var lines = ed.querySelectorAll('.idea-line');
+    for (var i = 0; i < lines.length; i++) {
+      lines[i].setAttribute('data-line', i);
+      penLineEls[i] = lines[i];
+    }
+  }
+
+  // 光标位置：以「字符偏移」保存/恢复（基于纯文本）
+  function ideaSaveCaret() {
+    var ed = ideaEditorEl();
+    if (!ed) return -1;
+    var sel = window.getSelection && window.getSelection();
+    if (!sel || sel.rangeCount === 0) return -1;
+    var range = sel.getRangeAt(0);
+    // 简化：用内联文本节点相对偏移近似（只支持单行内偏移）
+    var node = range.startContainer;
+    var offset = range.startOffset;
+    if (node.nodeType === 3) {
+      // 找到该文本节点在 editor 内的字符位置
+      var pre = document.createRange();
+      pre.selectNodeContents(ed);
+      pre.setEnd(node, offset);
+      return pre.toString().length;
+    }
+    return -1;
+  }
+  function ideaRestoreCaret(pos) {
+    var ed = ideaEditorEl();
+    if (!ed || pos < 0) return;
+    try {
+      var node = ed.firstChild;
+      var range = document.createRange();
+      var sel = window.getSelection();
+      // 简单恢复：从头数 pos 个字符
+      var walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null, false);
+      var acc = 0, target = null;
+      while (walker.nextNode()) {
+        var len = walker.currentNode.nodeValue.length;
+        if (acc + len >= pos) { target = walker.currentNode; break; }
+        acc += len;
+      }
+      if (target) {
+        range.setStart(target, pos - acc);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    } catch(e) {}
+  }
+
+  function ideaBuildEditableHtml(raw) {
+    var lines = String(raw || '').split('\n');
+    var html = '';
+    var openBlock = null;
     for (var i = 0; i < lines.length; i++) {
       var p = ideaParseLine(lines[i]);
-      var prev = blocks[blocks.length - 1];
-      if (prev && prev.color && prev.color === p.color) {
-        prev.lines.push({ idx: i, text: p.text });
+      var bodyHtml = ideaRenderTextEditable(p.text);
+      // 行首标记原文（[r]/[y]/[g]）存到 data-prefix，供还原时恢复
+      var prefix = p.color ? ('[' + p.color + '] ') : '';
+      var prefixAttr = prefix ? (' data-prefix="' + escapeHtml(prefix) + '"') : '';
+      if (p.color) {
+        if (openBlock && openBlock === p.color) {
+          // 同色续块
+          html += '<div class="idea-line" data-block="' + p.color + '"' + prefixAttr + '>' + bodyHtml + '</div>';
+        } else {
+          // 新块
+          html += '<div class="idea-block idea-' + IDEA_COLOR_CLASS[p.color] +
+                  '" data-block="' + p.color + '">' +
+                  '<span class="idea-ball"></span>' +
+                  '<div class="idea-line" data-block="' + p.color + '"' + prefixAttr + '>' + bodyHtml + '</div>' +
+                  '</div>';
+          openBlock = p.color;
+        }
       } else {
-        blocks.push({ color: p.color, lines: [{ idx: i, text: p.text }] });
+        openBlock = null;
+        // 空行用 <br> 填充，保证 contenteditable 里可见且可聚焦
+        html += '<div class="idea-line"' + prefixAttr + '>' + (bodyHtml === '' ? '<br>' : bodyHtml) + '</div>';
       }
     }
-    var colored = blocks.filter(function(b) { return b.color; }).length;
+    return html;
+  }
 
-    if (raw.trim() === '') {
-      box.innerHTML = '<div class="ideas-preview-empty">这里实时预览：写了 [[文字|说明]] 立即变成链接，涂了蜡笔立即显示颜色</div>';
-    } else {
-      var html = '';
-      blocks.forEach(function(b) {
-        var idxs = b.lines.map(function(l) { return l.idx; });
-        var cls = 'idea-block' + (b.color ? (' idea-' + IDEA_COLOR_CLASS[b.color]) : '');
-        // 块内行号集合：涂抹到色条/小球时整块处理
-        html += '<div class="' + cls + '" data-lines="' + idxs.join(',') + '">';
-        if (b.color) html += '<span class="idea-ball"></span>';
-        b.lines.forEach(function(l) {
-          html += '<div class="idea-line" data-line="' + l.idx + '">' +
-                  (l.text === '' ? '&nbsp;' : ideaRenderText(l.text)) + '</div>';
-        });
-        html += '</div>';
-      });
-      box.innerHTML = html;
-      var lineEls = box.querySelectorAll('.idea-line');
-      for (var k = 0; k < lineEls.length; k++) {
-        penLineEls[parseInt(lineEls[k].dataset.line, 10)] = lineEls[k];
-      }
+  // 渲染一行（可编辑版）：[[..]] → 链接 span（data-raw 存原文语法），其余转义
+  function ideaRenderTextEditable(text) {
+    var out = '', last = 0, m;
+    IDEA_LINK_RE.lastIndex = 0;
+    while ((m = IDEA_LINK_RE.exec(text)) !== null) {
+      out += escapeHtml(text.slice(last, m.index));
+      var label = m[1];
+      var tip = (m[2] !== undefined && m[2] !== '') ? m[2] : label;
+      out += '<span class="idea-link" contenteditable="false" data-raw="' +
+             escapeHtml(m[0]).replace(/"/g, '&quot;') + '" data-tip="' +
+             escapeHtml(tip).replace(/"/g, '&quot;') + '">' +
+             escapeHtml(label) + '</span>';
+      last = m.index + m[0].length;
     }
+    out += escapeHtml(text.slice(last));
+    return out;
+  }
 
+  // 把真源渲染进 contenteditable（单区域），并重建涂抹用的行索引
+  function ideasRenderPreview() {
+    var ta = document.getElementById('ideasTextarea');
+    if (!ta) return;
+    ideaRenderIntoEditor();
+    penLineEls = {};
+    var ed = ideaEditorEl();
+    if (!ed) return;
+    var lines = ed.querySelectorAll('.idea-line');
+    for (var i = 0; i < lines.length; i++) {
+      lines[i].setAttribute('data-line', i);
+      penLineEls[i] = lines[i];
+    }
     var hint = document.getElementById('ideasHint');
     if (hint) {
       if (ideaMode === 'pen') {
@@ -3463,8 +3600,8 @@ body {
   // ── 蜡笔：选色后保持涂抹态（可连续涂多行），再点蜡笔按钮退出 ──
   function ideasEnterPen() {
     ideaMode = 'pen';
-    var pv = document.getElementById('ideasPreview');
-    pv.classList.add('pen-mode');
+    var ed = ideaEditorEl();
+    if (ed) ed.classList.add('pen-mode');
     try { localStorage.setItem(IDEA_MODE_KEY, 'pen'); } catch(e) {}
     hideIdeaTip();
     ideasRenderPreview();
@@ -3472,11 +3609,10 @@ body {
   function ideasExitPen() {
     if (penPainting) { penPainting = false; penTouched = {}; }
     ideaMode = 'edit';
-    var pv = document.getElementById('ideasPreview');
-    pv.classList.remove('pen-mode');
+    var ed = ideaEditorEl();
+    if (ed) ed.classList.remove('pen-mode');
     try { localStorage.setItem(IDEA_MODE_KEY, 'edit'); } catch(e) {}
     try { ideasSavePage(); ideasLoadPage(ideasCurrentDate); } catch(e) {}
-    ideasRenderPreview();
   }
 
   function ideaPenTouch(idx) {
@@ -3496,9 +3632,9 @@ body {
       return;
     }
     var blockEl = el.closest ? el.closest('.idea-block') : null;
-    if (blockEl && blockEl.dataset.lines) {
-      blockEl.dataset.lines.split(',').forEach(function(s) {
-        ideaPenTouch(parseInt(s, 10));
+    if (blockEl) {
+      blockEl.querySelectorAll('.idea-line').forEach(function(l) {
+        ideaPenTouch(parseInt(l.dataset.line, 10));
       });
     }
   }
@@ -3513,7 +3649,8 @@ body {
     });
     ta.value = lines.join('\n');
     penTouched = {};
-    ideasSavePage();          // 落盘并刷新预览，但不退出涂抹态（可连续涂）
+    ideasSavePage();          // 落盘
+    ideaRenderIntoEditor();   // 重排单区域（涂抹结果就位），保持涂抹态可连续涂
   }
 
   // ── 蜡笔按钮：开关涂抹态 + 弹出选色面板 ──
@@ -3549,8 +3686,8 @@ body {
     ideasRenderPreview();
   });
 
-  var previewEl = document.getElementById('ideasPreview');
-  // 双击预览层的链接：弹出编辑框（定位原文位置替换）
+  var previewEl = document.getElementById('ideasEditor');
+  // 双击链接：弹出编辑框（定位原文位置替换）
   previewEl.addEventListener('dblclick', function(e) {
     var link = e.target.closest ? e.target.closest('.idea-link') : null;
     if (!link) return;
@@ -3621,6 +3758,18 @@ body {
   document.getElementById('ideasDrawer').addEventListener('scroll', hideIdeaTip);
 
   // ── 「🔗 说明」：插入悬停说明（或替换被双击编辑的旧链接） ──
+  // 光标位置基于 contenteditable 的纯文本偏移；真源始终是隐藏 textarea
+  function ideaEdCaretPos() {
+    var sel = window.getSelection && window.getSelection();
+    if (!sel || sel.rangeCount === 0) return -1;
+    var range = sel.getRangeAt(0);
+    var ed = ideaEditorEl();
+    if (!ed || !ed.contains(range.startContainer)) return -1;
+    var pre = document.createRange();
+    pre.selectNodeContents(ed);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  }
   function ideaInsertLink(label, tip) {
     if (ideaMode !== 'edit') { ideasExitPen(); }
     var ta = document.getElementById('ideasTextarea');
@@ -3634,15 +3783,19 @@ body {
       start = ideaEditTarget.start; end = ideaEditTarget.end;
       caret = start + snippet.length;
     } else {
-      // 普通插入：替换当前选区（无选区则插入光标处）
-      start = ta.selectionStart; end = ta.selectionEnd;
+      // 普通插入：插到 contenteditable 光标处的纯文本偏移
+      var cp = ideaEdCaretPos();
+      start = (cp >= 0) ? cp : val.length;
+      end = start;
       caret = start + snippet.length;
     }
     ta.value = val.slice(0, start) + snippet + val.slice(end);
     ideaEditTarget = null;   // 用完即清
-    ta.focus();
-    try { ta.setSelectionRange(caret, caret); } catch(e) {}
     ideasSavePage();
+    ideaRenderIntoEditor();
+    // 光标放到插入后位置
+    ideaRestoreCaret(caret);
+    ideaEditorEl().focus();
   }
 
   function openIdeaLinkModal() {

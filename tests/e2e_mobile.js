@@ -59,46 +59,56 @@ const getJson = url => new Promise((res, rej) => http.get(url, r => { let d = ''
   await sleep(1500);
 
   console.log('\n── 1. 打开思路抽屉 ──');
-  check(await evalJs(`!!document.getElementById('mIdeasPreview')`), '手机端预览容器存在');
+  check(await evalJs(`!!document.getElementById('mIdeasEditor')`), '手机端单区域编辑区存在');
   check(await evalJs(`!!document.getElementById('mIdeasPenGroup')`), '手机端画笔工具条存在');
   await evalJs(`document.getElementById('ideasToggleBtn').click(); true`);
   await sleep(400);
   check(await evalJs(`document.getElementById('ideasDrawer').classList.contains('show')`), '抽屉已打开');
 
   console.log('\n── 2. 写入内容并渲染 ──');
-  const content = '[r] 急着交的报告\n问老师 [[评分标准|占 40%，迟交扣 10%]]\n\n看剧\n打游戏';
-  await evalJs(`(function(){ var ta=document.getElementById('ideasTextarea');
-      ta.value = ${JSON.stringify(content)};
-      ta.dispatchEvent(new Event('input',{bubbles:true})); return true; })()`);
+  // 模拟真实输入：编辑器里已有渲染内容（每行一个 div，含 ]]，触发同步真源+重排）
+  await evalJs(`(function(){
+      var ed=document.getElementById('mIdeasEditor');
+      ed.innerHTML = '<div class="idea-line">[r] 急着交的报告</div><div class="idea-line">问老师 <span class="idea-link" contenteditable="false" data-raw="[[评分标准|占 40%，迟交扣 10%]]" data-tip="占 40%，迟交扣 10%">评分标准</span></div><div class="idea-line"><br></div><div class="idea-line">看剧</div><div class="idea-line">打游戏</div>';
+      ed.dispatchEvent(new Event('input',{bubbles:true}));
+      return true; })()`);
   await sleep(500);
-  check(await evalJs(`document.querySelectorAll('#mIdeasPreview .idea-block.idea-red').length === 1`), '红块 1 块');
-  check(await evalJs(`document.querySelectorAll('#mIdeasPreview .idea-ball').length === 1`), '小球 1 个');
-  check(await evalJs(`document.querySelectorAll('#mIdeasPreview .idea-link').length === 1`), '说明链接 1 个');
+  check(await evalJs(`document.getElementById('ideasTextarea').value.indexOf('[r] 急着交的报告') !== -1`), '真源同步了 [r] 语法');
+  check(await evalJs(`document.querySelectorAll('#mIdeasEditor .idea-block.idea-red').length === 1`), '红块 1 块');
+  check(await evalJs(`document.querySelectorAll('#mIdeasEditor .idea-ball').length === 1`), '小球 1 个');
+  check(await evalJs(`document.querySelectorAll('#mIdeasEditor .idea-link').length === 1`), '说明链接 1 个');
+  check(await evalJs(`!document.getElementById('mIdeasPreview')`), '单区域：无独立预览元素');
 
   console.log('\n── 3. 蜡笔点按打标记（手机交互）──');
   await evalJs(`document.getElementById('mIdeasCrayonBtn').click(); true`);
   await sleep(200);
   await evalJs(`document.querySelector('#mIdeasPenGroup .ideas-pen[data-color="g"]').click(); true`);
   await sleep(300);
-  check(await evalJs(`document.getElementById('ideasTextarea').style.display === 'none'`), '涂抹态隐藏编辑框');
-  check(await evalJs(`document.getElementById('mIdeasPreview').style.display !== 'none'`), '涂抹态预览作为画布');
+  check(await evalJs(`document.getElementById('mIdeasEditor').classList.contains('pen-mode')`), '涂抹态：编辑区进入画布模式');
+  check(await evalJs(`document.getElementById('mIdeasPenGroup').style.display !== 'none'`), '画笔组显示');
 
   // 点第 4、5 行（看剧、打游戏）
-  const lines = JSON.parse(await evalJs(`JSON.stringify(Array.prototype.map.call(
-      document.querySelectorAll('#mIdeasPreview .idea-line'), function(e){ var r=e.getBoundingClientRect();
+  async function getMobileLineRects() {
+    return JSON.parse(await evalJs(`JSON.stringify(Array.prototype.map.call(
+      document.querySelectorAll('#mIdeasEditor .idea-line'), function(e){ var r=e.getBoundingClientRect();
         return { i: parseInt(e.dataset.line,10), x: Math.round(r.left+r.width/2), y: Math.round(r.top+r.height/2) }; }))`));
+  }
   async function tap(i) {
-    const p = lines.find(l => l.i === i);
+    // 每次点击前重取坐标（涂抹/重排后坐标会变化）
+    const fresh = await getMobileLineRects();
+    const p = fresh.find(l => l.i === i);
     await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', clickCount: 1 });
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', clickCount: 1 });
     await sleep(400);
   }
   await tap(3);
+  console.log('     tap3后真源:', JSON.stringify(await evalJs(`document.getElementById('ideasTextarea').value`)));
   await tap(4);
+  console.log('     tap4后真源:', JSON.stringify(await evalJs(`document.getElementById('ideasTextarea').value`)));
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[g] 看剧'`), '点按第 4 行 → 上绿');
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[4] === '[g] 打游戏'`), '点按第 5 行 → 上绿');
-  check(await evalJs(`document.querySelectorAll('#mIdeasPreview .idea-block.idea-green').length === 1`), '相邻两行合并 1 块');
-  check(await evalJs(`document.querySelectorAll('#mIdeasPreview .idea-block.idea-green .idea-ball').length === 1`), '合并块 1 个小球');
+  check(await evalJs(`document.querySelectorAll('#mIdeasEditor .idea-block.idea-green').length === 1`), '相邻两行合并 1 块');
+  check(await evalJs(`document.querySelectorAll('#mIdeasEditor .idea-block.idea-green .idea-ball').length === 1`), '合并块 1 个小球');
   let shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT, 'mobile-pen.png'), Buffer.from(shot.result.data, 'base64'));
 
@@ -117,7 +127,7 @@ const getJson = url => new Promise((res, rej) => http.get(url, r => { let d = ''
   await sleep(200);
 
   console.log('\n── 4. 点链接看说明 ──');
-  const lp = JSON.parse(await evalJs(`(function(){ var r=document.querySelector('#mIdeasPreview .idea-link').getBoundingClientRect();
+  const lp = JSON.parse(await evalJs(`(function(){ var r=document.querySelector('#mIdeasEditor .idea-link').getBoundingClientRect();
       return JSON.stringify({x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)}); })()`));
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: lp.x, y: lp.y, button: 'left', clickCount: 1 });
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: lp.x, y: lp.y, button: 'left', clickCount: 1 });
