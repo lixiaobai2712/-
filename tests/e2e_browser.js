@@ -165,6 +165,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
   await sleep(300);
   check(await evalJs(`document.getElementById('ideasPenGroup').classList.contains('open')`), '蜡笔面板已弹出');
+  // 回归：面板必须「真的可见」——此前被父容器 overflow:hidden 裁剪，classList 已 open 但屏幕上看不到
+  const popupVis = await evalJs(`(function(){
+    var pop = document.getElementById('ideasPenGroup');
+    var r = pop.getBoundingClientRect();
+    if (!r.width || !r.height) return 'zero-size';
+    if (r.top < 0 || r.left < 0 || r.bottom > window.innerHeight || r.right > window.innerWidth) return 'off-viewport';
+    var el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return (pop === el || (el && pop.contains(el))) ? 'visible' : 'clipped-or-covered';
+  })()`);
+  check(popupVis === 'visible', '蜡笔选色面板实际可见（未被父容器裁剪）', '结果=' + popupVis);
   // 点绿色笔 → 面板收起 + 进入涂抹态
   await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="g"]').click(); true`);
   await sleep(300);

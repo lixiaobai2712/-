@@ -282,6 +282,17 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 
 <div class="toast" id="toast"></div>
 
+<!-- 到点提醒（日期规划「时间点」） -->
+<div class="modal" id="remindModal">
+  <div class="modal-box" style="background:#fffbe6;border:1px solid #ffe0b2;">
+    <h3 style="color:#e65100;">⏰ 到点提醒</h3>
+    <p id="remindText" style="font-size:14px;color:#333;white-space:pre-line;line-height:1.8;"></p>
+    <div class="row">
+      <button class="primary" id="remindOk">知道了</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function() {
   // ═══════════════════════ 常量与状态 ═══════════════════════
@@ -1599,6 +1610,62 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     ideasLoadPage(date);
   });
 
+  // ═══════════════════════ 到点提醒（手机版） ═══════════════════════
+  // 手机只读采纳电脑维护的 my_date_plans；页面打开时每 30s 检查今天的时间点规划，
+  // 到点弹「⏰ 到点提醒」弹窗，已提醒的记入 localStorage 不重复弹。
+  var REMIND_KEY = 'mobile_reminded_v1';
+  var REMIND_WINDOW_MIN = 20;   // 到点后 20 分钟内有效（错过/晚打开也不漏）
+  var remindTimer = null;
+
+  function loadReminded() {
+    try { return JSON.parse(localStorage.getItem(REMIND_KEY) || '{}'); }
+    catch(e) { return {}; }
+  }
+  function saveReminded(r) {
+    try { localStorage.setItem(REMIND_KEY, JSON.stringify(r)); } catch(e) {}
+  }
+
+  function duePlansNow() {
+    var plans = [];
+    try { plans = JSON.parse(state.data.my_date_plans || '[]'); }
+    catch(e) { plans = []; }
+    if (!Array.isArray(plans)) return [];
+    var today = todayStr();
+    var now = new Date();
+    var cur = now.getHours() * 60 + now.getMinutes();
+    var reminded = loadReminded();
+    var due = [];
+    plans.forEach(function(p) {
+      if (!p || p.type !== 'point' || p.date !== today || p.done) return;
+      var t = p.time;
+      if (typeof t !== 'string' || t.indexOf(':') < 0) return;
+      var parts = t.split(':');
+      var target = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+      if (isNaN(target)) return;
+      if (cur < target || cur - target > REMIND_WINDOW_MIN) return;
+      var key = today + '|' + t + '|' + p.id;
+      if (reminded[key]) return;
+      due.push({ key: key, time: t, text: p.text || '' });
+    });
+    return due;
+  }
+
+  function checkReminders() {
+    if (document.hidden) return; // 切后台不打扰；回到前台会补查一次
+    var due = duePlansNow();
+    if (!due.length) return;
+    var reminded = loadReminded();
+    due.forEach(function(d) { reminded[d.key] = true; });
+    saveReminded(reminded);
+    document.getElementById('remindText').textContent =
+      due.map(function(d) { return d.time + '  ' + d.text; }).join('\n');
+    document.getElementById('remindModal').classList.add('show');
+  }
+
+  document.getElementById('remindOk').addEventListener('click', function() {
+    document.getElementById('remindModal').classList.remove('show');
+  });
+
   // ═══════════════════════ 启动 ═══════════════════════
   function registerSW() {
     // 相对路径注册，Netlify 根路径或子路径部署都能工作
@@ -1630,8 +1697,11 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
       scheduleAutoSync();
     }
     setInterval(updateStatus, 30000);
+    // 到点提醒：30s 检查一次；回到前台立即补查
+    remindTimer = setInterval(checkReminders, 30000);
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) {
+        checkReminders(); // 回到前台立即补查一次提醒
         if (validCfg(loadGiteeCfg())) {
           giteeSync(false);
           scheduleAutoSync();

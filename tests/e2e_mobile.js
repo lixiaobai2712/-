@@ -153,6 +153,33 @@ const getJson = url => new Promise((res, rej) => http.get(url, r => { let d = ''
   check(summary.indexOf('[[') === -1 && summary.indexOf(']]') === -1, '摘要不含说明语法');
   check(summary.indexOf('评分标准') !== -1, '摘要保留了说明的显示文字');
 
+  console.log('\n── 7. 到点提醒（时间点规划）──');
+  const hmNow = await evalJs(`(function(){ var d=new Date(); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); })()`);
+  const todayNow = await evalJs(`(function(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); })()`);
+  // 注入今天当前时刻的一条时间点规划（my_date_plans 必须存 JSON 字符串）
+  await evalJs(`(function(){
+    var plans = JSON.stringify([{id:'e2e-remind', type:'point', date:${JSON.stringify(todayNow)}, time:${JSON.stringify(hmNow)}, text:'E2E 到点提醒', done:false}]);
+    localStorage.setItem('mobile_todo_cache_v1', JSON.stringify({seq:0, data:{my_date_plans: plans}}));
+    return true; })()`);
+  await send('Page.reload', { ignoreCache: true });
+  await sleep(1500);
+  // 确定性驱动真实代码路径：页面回到前台时 visibilitychange → checkReminders 立即补查
+  await evalJs(`document.dispatchEvent(new Event('visibilitychange')); true`);
+  await sleep(600);
+  const shown1 = await evalJs(`document.getElementById('remindModal').classList.contains('show')`);
+  check(shown1, '到点后弹出提醒（注入 ' + todayNow + ' ' + hmNow + '）');
+  if (shown1) {
+    check((await evalJs(`document.getElementById('remindText').textContent`)).indexOf('E2E 到点提醒') !== -1, '弹窗内容含规划文本');
+    await evalJs(`document.getElementById('remindOk').click(); true`);
+    await sleep(300);
+    check(!(await evalJs(`document.getElementById('remindModal').classList.contains('show')`)), '点「知道了」关闭弹窗');
+    check((await evalJs(`localStorage.getItem('mobile_reminded_v1')`)).indexOf('e2e-remind') !== -1, '已提醒状态落盘');
+  }
+  // 防重复：再次触发补查，已提醒的不应再弹
+  await evalJs(`document.dispatchEvent(new Event('visibilitychange')); true`);
+  await sleep(600);
+  check(!(await evalJs(`document.getElementById('remindModal').classList.contains('show')`)), '已提醒的规划不重复弹');
+
   console.log('\n────────────────────────');
   console.log(fail === 0 ? ('手机端全部通过：' + pass + ' 项') : (pass + ' 通过 / ' + fail + ' 失败'));
   try { ws.close(); } catch (e) {}

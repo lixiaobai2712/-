@@ -1390,7 +1390,7 @@ body {
   border: 1px solid #dcdfe6; border-radius: 10px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.15);
 }
-#ideasPenToggleWrap { position: relative; }
+#ideasPenToggleWrap { position: relative; overflow: visible; }
 .ideas-pen-pop.open { display: flex; }
 
 /* ── 单区域编辑（contenteditable 所见即所得） ── */
@@ -3590,6 +3590,7 @@ body {
       if (ideaMode === 'pen') {
         if (!ideaPenColor) hint.textContent = '选一支笔再涂抹';
         else if (penPainting) hint.textContent = '松手生效';
+        else if (ideaPenColor === 'e') hint.textContent = '橡皮擦除 · 再点蜡笔退出';
         else hint.textContent = '涂' + (IDEA_PEN_TIP[ideaPenColor] || '') + '标记 · 再点蜡笔退出';
       } else {
         hint.textContent = '🖍 蜡笔涂抹 ｜ 🔗 插说明 ｜ 双击链接改内容';

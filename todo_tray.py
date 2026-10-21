@@ -1031,6 +1031,7 @@ def _ensure_branch(cfg):
 cloud_sync_lock = threading.Lock()
 cloud_status_lock = threading.Lock()
 _gitee_service = None
+_reminder_service = None
 _dirty_timer = None
 _dirty_timer_lock = threading.Lock()
 cloud_status = {
@@ -2294,10 +2295,170 @@ def create_ball(root):
 
 
 # ─────────────────────────────────────────────
+# 到点提醒（日期规划「时间点」到点弹窗）
+# ─────────────────────────────────────────────
+REMINDER_FILE = os.path.join(app_base(), 'todo_reminders.json')
+REMINDER_POLL_SEC = 20          # 检查间隔（秒）
+REMINDER_WINDOW_MIN = 20        # 到点后 20 分钟内有效（悬浮球晚启动/错过也不漏）
+_reminder_lock = threading.Lock()
+_reminded = {}
+_reminder_popup = None
+
+
+def _load_reminded():
+    global _reminded
+    try:
+        if os.path.exists(REMINDER_FILE):
+            with open(REMINDER_FILE, encoding='utf-8') as f:
+                _reminded = json.load(f)
+            if not isinstance(_reminded, dict):
+                _reminded = {}
+    except Exception:
+        _reminded = {}
+
+
+def _save_reminded():
+    try:
+        with open(REMINDER_FILE, 'w', encoding='utf-8') as f:
+            json.dump(_reminded, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def due_point_plans(plans_raw, today=None, now_str=None):
+    """从 my_date_plans 原文里挑出「已到点、未完成、且本次未提醒过」的时间点规划。
+    返回 [(time, id, text), ...]。today='YYYY-MM-DD'、now_str='HH:MM'，缺省取当前时间，
+    传固定值便于测试。"""
+    import datetime as _dt
+    if today is None:
+        today = _dt.date.today().isoformat()
+    if now_str is None:
+        now_str = _dt.datetime.now().strftime('%H:%M')
+    plans = _json_load(plans_raw, [])
+    if not isinstance(plans, list):
+        return []
+    try:
+        nh, nm = map(int, now_str.split(':'))
+        cur = nh * 60 + nm
+    except Exception:
+        return []
+    due = []
+    for p in plans:
+        if not isinstance(p, dict):
+            continue
+        if p.get('type') != 'point' or p.get('date') != today or p.get('done'):
+            continue
+        t = p.get('time')
+        if not isinstance(t, str) or ':' not in t:
+            continue
+        try:
+            th, tm = map(int, t.split(':'))
+            target = th * 60 + tm
+        except Exception:
+            continue
+        if cur < target or cur - target > REMINDER_WINDOW_MIN:
+            continue
+        key = '%s|%s|%s' % (today, t, p.get('id', ''))
+        with _reminder_lock:
+            if _reminded.get(key):
+                continue
+        due.append((t, p.get('id', ''), p.get('text', '')))
+    return due
+
+
+def show_reminder_popup(root, items):
+    """非阻塞置顶弹窗：列出到点的规划。items=[(time, id, text), ...]"""
+    global _reminder_popup
+    try:
+        if _reminder_popup is not None and _reminder_popup.winfo_exists():
+            _reminder_popup.destroy()
+    except Exception:
+        pass
+    top = tk.Toplevel(root)
+    _reminder_popup = top
+    top.title('⏰ 到点提醒')
+    top.configure(bg='#fffbe6')
+    top.resizable(False, False)
+    try:
+        top.attributes('-topmost', True)
+        top.after(800, lambda: top.attributes('-topmost', False))
+    except Exception:
+        pass
+
+    frm = tk.Frame(top, bg='#fffbe6', padx=24, pady=16)
+    frm.pack(fill='both', expand=True)
+    tk.Label(frm, text='⏰ 到点提醒', font=('Microsoft YaHei UI', 15, 'bold'),
+             bg='#fffbe6', fg='#e65100').pack(anchor='w')
+    for (t, _pid, text) in items:
+        tk.Label(frm, text='%s  %s' % (t, text or '(无内容)'),
+                 font=('Microsoft YaHei UI', 11), bg='#fffbe6', fg='#333',
+                 justify='left', anchor='w', wraplength=380).pack(anchor='w', pady=(10, 0))
+
+    def close():
+        try:
+            top.destroy()
+        except Exception:
+            pass
+
+    btns = tk.Frame(frm, bg='#fffbe6')
+    btns.pack(anchor='e', pady=(16, 0))
+    tk.Button(btns, text='知道了', command=close, bg='#5c6bc0', fg='#fff',
+              relief='flat', padx=18, pady=6, cursor='hand2',
+              font=('Microsoft YaHei UI', 10)).pack(side='left')
+
+    top.update_idletasks()
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    w, h = top.winfo_reqwidth(), top.winfo_reqheight()
+    top.geometry('%dx%d+%d+%d' % (w, h, max(0, (sw - w) // 2), max(0, int(sh * 0.25))))
+    try:
+        root.bell()
+    except Exception:
+        pass
+
+
+class ReminderService:
+    """后台提醒线程：每 20s 检查今天的时间点规划，到点弹窗（不依赖浏览器/小窗是否打开）。"""
+    def __init__(self, root):
+        self.root = root
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        _load_reminded()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _loop(self):
+        while not self._stop.wait(REMINDER_POLL_SEC):
+            try:
+                with data_lock:
+                    plans_raw = latest_data.get('my_date_plans')
+                if not plans_raw:
+                    continue
+                due = due_point_plans(plans_raw)
+                if not due:
+                    continue
+                # 先记已提醒（落盘防重复），再回主线程弹窗
+                with _reminder_lock:
+                    today = datetime.date.today().isoformat()
+                    for (t, pid, _text) in due:
+                        _reminded['%s|%s|%s' % (today, t, pid)] = True
+                    _save_reminded()
+                self.root.after(0, lambda items=due: show_reminder_popup(self.root, items))
+            except Exception:
+                continue
+
+
+# ─────────────────────────────────────────────
 # 主程序
 # ─────────────────────────────────────────────
 def main():
-    global _gitee_service
+    global _gitee_service, _reminder_service
     import pystray
 
     enable_dpi_aware()  # 必须在创建任何窗口之前启用，否则文字被位图拉伸变糊
@@ -2317,6 +2478,11 @@ def main():
     gitee_service = GiteeSyncService(root)
     _gitee_service = gitee_service
     gitee_service.start()
+
+    # 到点提醒服务（常驻，不依赖浏览器打开）
+    reminder_service = ReminderService(root)
+    _reminder_service = reminder_service
+    reminder_service.start()
 
     def on_show(icon, item):
         root.after(0, lambda: show_window(root))
@@ -2343,6 +2509,7 @@ def main():
 
     def on_quit(icon, item):
         gitee_service.stop()
+        reminder_service.stop()
         icon.stop()
         root.after(0, root.quit)
 
@@ -2369,6 +2536,7 @@ def main():
 
     root.mainloop()
     gitee_service.stop()
+    reminder_service.stop()
     _gitee_service = None
     try:
         server.shutdown()

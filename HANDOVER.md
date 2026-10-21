@@ -74,6 +74,7 @@
 | `cloud_config.json` | Gitee 配置（repo/token 等，由设置窗写入） | gitignore，本地填写 |
 | `cloud_config.example.json` | Gitee 配置字段示例（无真实令牌） | 待提交 |
 | `todo_sync.json` / `todo_pull.json` / `todo_ball_pos.json` | 运行时数据：枢纽全量 / 页面轮询增量 / 悬浮球位置 | gitignore |
+| `todo_reminders.json` | 悬浮球「到点提醒」已提醒记录 `{日期\|HH:MM\|计划id: true}`（exe 同目录，gitignore，删除后自动重建） | gitignore |
 | `README.md` / `CHANGELOG.md` / `PLAN_手机版与双端联动*.md` | 使用说明 / 变更历史 / 设计方案 | 已提交 |
 | `可爱的阿米娅-人为修改.ico` | 悬浮球图标源文件（打包用） | 已提交 |
 
@@ -261,6 +262,8 @@ node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.p
 10. **开机自启**：写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 的 `TodoTray`；frozen 写 exe 路径，开发态写 `pythonw.exe + todo_tray.py`。路径变化后重新勾选即可更新。
 11. **国内网络推 GitHub**：HTTPS 推送遇 `TLS unexpected EOF` 时用 `git -c http.version=HTTP/1.1 push origin main`。
 12. **执行环境**：本机 Windows；开发/验证用 `C:\Users\ASUS\AppData\Local\Programs\Python\Python313\python.exe`。
+13. **到点提醒（电脑悬浮球）**：只提醒 `type=='point'`、日期=今天、未完成、且当前时间在到点后 20 分钟窗口（`REMINDER_WINDOW_MIN=20`）内的计划；检查间隔 20s（`REMINDER_POLL_SEC`）；已提醒写入 `todo_reminders.json` 防重复（删掉文件即可对同条目重新提醒）；提醒**只读** `latest_data['my_date_plans']`，不修改计划数据，也不参与三端同步。手机版同语义：30s 轮询 + `visibilitychange` 补查 + `mobile_reminded_v1` 持久化。
+14. **打包 exe 必须用 Python313**（含 `pystray`）：`C:\Users\ASUS\AppData\Local\Programs\Python\Python313\python.exe -m PyInstaller --noconfirm --clean todo_tray.spec`。`C:\Python314\python.exe` 缺 `pystray`，用它打包出的 exe 启动即静默退出（8899 不监听、无任何窗口），特征：`build\todo_tray\warn-todo_tray.txt` 出现 `missing module named pystray`。
 
 ## 11. 版本历史摘要（详见 CHANGELOG.md）
 
@@ -276,7 +279,9 @@ node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.p
 | v8 同步回查+小窗重做 | 修复全量合并/墓碑/云端死锁/seq 心跳等 10+ 问题；小窗改为无边框圆角卡片，单例 + 3s 刷新 |
 | v9 思路侧栏重做 | 电脑/手机统一为“左编辑 + 右侧日期列表（日期 + 最后修改时间）”，手动点击切换，不再按天翻页/弹日历，编辑不新增日期 |
 | v10 Gitee + Netlify PWA | 校园网隔离/坚果云 CORS → 改用 Gitee 私有仓库做数据、Netlify 托管手机页；自动 120s 同步、语义指纹防回环、限流退避、401 回退、开机自启；移除手机端局域网轮询与坚果云 |
-| v11 思路标记 + 悬停说明 | 思路正文内联语法 `[r]/[y]/[g]` 与 `[[文字\|说明]]`；阅读/编辑/涂抹三模式、荧光笔涂抹（手机点按）、相邻同色行自动并块且小球只在块首、悬停/点按看说明；不新增存储字段，三端同步格式不变（当前版本） |
+| v11 思路标记 + 悬停说明 | 思路正文内联语法 `[r]/[y]/[g]` 与 `[[文字\|说明]]`；阅读/编辑/涂抹三模式、荧光笔涂抹（手机点按）、相邻同色行自动并块且小球只在块首、悬停/点按看说明；不新增存储字段，三端同步格式不变 |
+| v12/v12.1 思路交互重做 | 蜡笔选色 + 阅读/编辑同屏 + 双击链接编辑；再合并为单区域所见即所得（contenteditable） |
+| v12.2 到点提醒 + 蜡笔修复 | 修复蜡笔选色面板被 `overflow:hidden` 裁剪；电脑悬浮球/手机 App 对日期规划「时间点」到点弹窗（20 分钟窗口、已提醒持久化、不依赖浏览器打开） |
 
 ## 12. Git 与协作
 

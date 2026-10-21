@@ -1,5 +1,24 @@
 # 更新日志
 
+## 2026-10-21
+
+### 修复：蜡笔选色面板被父容器裁剪（打开但看不到按钮）
+- 现象：点「🖍 蜡笔」后选色面板无按钮显示；旧 E2E 只断言 `classList` 含 open，漏掉了「面板实际不可见」
+- 根因：`#ideasPenToggleWrap { position: relative; }` 的父容器带 `overflow: hidden`，绝对定位向下弹出的选色面板被裁掉
+- 修复：父容器改 `overflow: visible`；顺带在 `ideasHint` 提示补一句「橡皮擦除 · 再点蜡笔退出」
+- 测试：E2E 新增「面板实际可见」断言（`elementFromPoint` 判定，不再只看 classList）；电脑端 E2E 48→49 项
+
+### 新增：日期规划「时间点」到点弹窗提醒（三端，不依赖浏览器打开）
+- 用户需求：「电脑到点弹消息（基于日期规划的时间点，不依赖浏览器打开）」+「手机版到点弹消息」
+- **电脑悬浮球**（`todo_tray.py`）：新增 `ReminderService` 后台线程，每 20s 检查 `my_date_plans` 中 `type=='point'`、日期为今天、未完成、且当前时间落在「到点后 20 分钟窗口」内的条目；到点后置顶黄色弹窗（居中屏幕 1/4 高、`root.bell()` 提示音），已提醒条目写入 `todo_reminders.json`（exe 同目录）防重复，晚启动/错过也不漏（20 分钟窗口内启动即补弹）
+- 数据链：`todo.html` 的 `collectTrayPayload()` 本就推送 `my_date_plans`，悬浮球 `latest_data` 直接读取，无需改同步格式
+- **手机版**（`docs/mobile.html`）：`checkReminders()` 每 30s 轮询（回到前台 `visibilitychange` 立即补查），`duePlansNow()` 解析 `state.data.my_date_plans`（注意是 JSON 字符串，需 `JSON.parse`），弹 `remindModal`，已提醒写入 `mobile_reminded_v1` 防重复
+- 冲突/多端语义：提醒只读计划、不修改计划数据；各端「已提醒」状态独立持久化，不参与三端同步
+- 测试：新增 `tray_reminder_test.js`（沙箱导入 `todo_tray.py` 跑真实 `due_point_plans`，14 项）；手机 E2E 23→28 项；语法/同步格式回归全绿；**真机端到端验证**（注入到点规划 → 新打包 exe → 弹窗在桌面出现，截图确认「到点提醒」+「知道了」按钮）
+
+### 工程
+- 重新打包 `todo_tray.exe`（PyInstaller 6.22.3，用 **Python313** 构建；注意 `C:\Python314\python.exe` 缺 `pystray`，用它打包会得到启动即崩的 exe）
+
 ## 2026-10-19
 
 ### 优化：v12.1 思路整理改为「单区域所见即所得」（用户要求不要上下两块）
