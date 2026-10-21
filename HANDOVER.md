@@ -240,7 +240,7 @@ pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为�
 ```bash
 node tests/ideas_mark_test.js    # 语法解析/涂抹/擦除/相邻并块 纯逻辑（29 项）
 node tests/syntax_check.js       # 抽取两个 HTML 的内联脚本做 vm.Script 语法检查
-node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停/手感（62 项，出截图）
+node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停/手感/单击不误涂（71 项，出截图）
 node tests/e2e_mobile.js         # 手机版点按上色/点链接看说明/摘要去语法（28 项，出截图）
 node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.py，走真实合并函数做往返断言（13 项）
 ```
@@ -283,6 +283,7 @@ node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.p
 | v12/v12.1 思路交互重做 | 蜡笔选色 + 阅读/编辑同屏 + 双击链接编辑；再合并为单区域所见即所得（contenteditable） |
 | v12.2 到点提醒 + 蜡笔修复 | 修复蜡笔选色面板被 `overflow:hidden` 裁剪；电脑悬浮球/手机 App 对日期规划「时间点」到点弹窗（20 分钟窗口、已提醒持久化、不依赖浏览器打开） |
 | v12.3 蜡笔手感 | ①拖动中实时预览上色（`.pen-live-r/y/g`，松手才写真源）；②`mousemove` 挂 `document`，命中三级兜底（closest → elementFromPoint → y 几何），拖出编辑区再拖回不断涂、编辑区外不乱涂；③commit 重排保持 `scrollTop`；④拖出窗口 `mouseleave` 兜底提交。涂抹实机测试必须在 `tests/out/sandbox/` 隔离副本（端口 8899→19999）上进行 |
+| v12.3.1 单击不误涂 | 点击/拖拽位移阈值（8px）：单击只涂按下那一行，边界手抖不再连带下一行；`penJustCommitted` 挡掉重排后 click 的二次命中。手机端点按单行不受影响 |
 
 ## 12. Git 与协作
 

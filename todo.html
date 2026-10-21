@@ -3373,6 +3373,12 @@ body {
   var penPainting = false;
   var penTouched = {};        // {行号: true} 本次涂抹碰到的行
   var penLineEls = {};        // {行号: 元素} 涂抹时实时高亮
+  // 点击/拖拽区分：按下后位移不超过阈值视为「单击」，只涂按下那一行；
+  // 超过阈值才进入拖拽轨迹涂抹。修复「点击一下、边界抖动把下一行也涂上」
+  var penPress = null;        // {x, y} 按下点（屏幕坐标）
+  var penDragging = false;    // 本次是否已超过点击阈值进入拖拽
+  var PEN_CLICK_THRESHOLD = 8; // px：小于等于此位移算单击
+  var penJustCommitted = false; // mouseup 刚提交过涂抹（click 跟随触发时不再二次处理）
 
   // 行首标记：兼容大小写，标记后可跟 0~N 个空格
   var IDEA_MARK_RE = /^[ \t]*\[([rygRYG])\][ \t]*/;
@@ -3741,6 +3747,9 @@ body {
     e.preventDefault();
     penPainting = true;
     penTouched = {};
+    penPress = { x: e.clientX, y: e.clientY };
+    penDragging = false;
+    penJustCommitted = false;
     // 清掉上次未松手遗留的预览样式（如拖出窗口未提交）
     var ed0 = ideaEditorEl();
     if (ed0) {
@@ -3753,21 +3762,36 @@ body {
   document.addEventListener('mousemove', function(e) {
     if (!penPainting) return;
     e.preventDefault();
+    // 单击防抖：位移未超阈值不涂新行（按住时手抖/边界微移不会把下一行涂上）
+    if (!penDragging && penPress) {
+      var dx = e.clientX - penPress.x;
+      var dy = e.clientY - penPress.y;
+      if (dx * dx + dy * dy <= PEN_CLICK_THRESHOLD * PEN_CLICK_THRESHOLD) return;
+      penDragging = true;
+    }
     ideaPenHit(e);
   });
   document.addEventListener('mouseup', function() {
     if (!penPainting) return;
     penPainting = false;
+    penPress = null;
+    penDragging = false;
     ideaPenCommit();
+    penJustCommitted = true;
   });
   // 拖出浏览器窗口：mouseup 不触发，用 mouseleave 兜底提交，预览不会残留
   document.addEventListener('mouseleave', function() {
     if (!penPainting) return;
     penPainting = false;
+    penPress = null;
+    penDragging = false;
     ideaPenCommit();
+    penJustCommitted = true;
   });
-  // 触摸屏：涂抹退化为“点一下整行”
+  // 触摸屏：涂抹退化为“点一下整行”（真实输入总会先触发 mousedown 已处理，
+  // 这里只兜底「只派发 click 的异常事件源」，并用 penJustCommitted 挡掉重排后的二次命中）
   previewEl.addEventListener('click', function(e) {
+    if (penJustCommitted) { penJustCommitted = false; return; }
     if (ideaMode !== 'pen' || ideaPenColor === '' || penPainting) return;
     if (!e.target.closest || !e.target.closest('.idea-line')) return;
     ideaPenHit(e);

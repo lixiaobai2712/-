@@ -276,7 +276,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       var els=document.querySelectorAll('#ideasEditor .idea-line');
       var edr=document.getElementById('ideasEditor').getBoundingClientRect();
       var out=[]; for (var i=0;i<els.length;i++){ var r=els[i].getBoundingClientRect();
-        out.push({i:i,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}); }
+        out.push({i:i,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),
+                  t:Math.round(r.top),b:Math.round(r.bottom)}); }
       return JSON.stringify({edr:{l:Math.round(edr.left),r:Math.round(edr.right),t:Math.round(edr.top),b:Math.round(edr.bottom)}, lines:out});
     })()`);
     return JSON.parse(rects);
@@ -345,6 +346,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await pressMoveRelease([{ x: geo.edr.l + 4, y: padY }]); // 编辑区左内边距 4px
   ta = await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')`);
   check(ta[0].indexOf('[r] ') === 0, '点在编辑区左 padding 上 → 命中该位置的行并涂红');
+
+  // C2. 单击只涂目标行：点 line1，line2 不能被连带误涂（v12.3 回归：click 在重排后再命中会错位到下一行）
+  geo = await freshLines();
+  const c1 = geo.lines[1];
+  await pressMoveRelease([{ x: c1.x, y: c1.y }]);
+  ta = await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')`);
+  check(ta[1].indexOf('[r] 记得问老师') === 0, '单击 line1 → 该行涂红', '实际=' + JSON.stringify(ta[1]));
+  check(ta[2].indexOf('[y] ') === 0, '单击 line1 后 line2 未被连带涂色（单击不误涂下一行）',
+        '实际=' + JSON.stringify(ta[2]));
 
   // 截图（涂抹后的渲染效果）
   let shot = await send('Page.captureScreenshot', { format: 'png' });
@@ -448,6 +458,76 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const taLast = await evalJs(`(function(){ var v=document.getElementById('ideasTextarea').value.split('\\n'); return v[v.length-1]; })()`);
   check(Math.abs(s2 - s1) <= 2, '涂完底部一行后滚动位置保持（不跳回顶部）', 's1=' + s1 + ' s2=' + s2);
   check(taLast.indexOf('[g] 第 59 行') === 0, '底部那行已涂绿', '实际=' + JSON.stringify(taLast));
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
+
+  // ── 8. 富数据逐行单击不误涂（diff 式：点击前后只允许目标行变化） ──
+  console.log('\n── 8. 富数据逐行单击不误涂 ──');
+  const rich = [
+    '[r] 红块第一行', '[r] 红块第二行', '',
+    '[y] 黄行', '普通行带着 [[链接|说明内容]] 测试',
+    '最后一行收尾', ''
+  ].join('\n');
+  await evalJs(`document.getElementById('ideasEditor').textContent = '';
+                document.getElementById('ideasTextarea').value = ${JSON.stringify(rich)};
+                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await sleep(600);
+  check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-line').length === 7`), '富数据 7 行已渲染');
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(150);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="g"]').click(); true`);
+  await sleep(250);
+  // 边界抖动（用户反馈「点击后下一行也出现颜色」）：按下在第 1 行底部 1px 处，
+  // 向下移动 6px 跨过行边界进入第 2 行——位移 ≤ 阈值 8px，仍算单击，只涂按下那一行
+  {
+    const gb = await freshLines();
+    const p0 = gb.lines[0];   // 红块第一行，t=200 b=224
+    const pressY = p0.b - 1;
+    const moveY = p0.b + 5;   // 跨边界进入下一行
+    const beforeTxt = await evalJs(`document.getElementById('ideasTextarea').value`);
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p0.x, y: pressY, button: 'left', buttons: 1, clickCount: 1 });
+    await sleep(80);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p0.x, y: moveY, button: 'left', buttons: 1 });
+    await sleep(80);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p0.x, y: moveY, button: 'left', clickCount: 1 });
+    await sleep(350);
+    const after = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    const b4 = beforeTxt.split('\n');
+    const changed = [];
+    for (let j = 0; j < after.length; j++) if (after[j] !== b4[j]) changed.push(j);
+    check(changed.length === 1 && changed[0] === 0 && after[0] === '[g] 红块第一行',
+          '边界手抖单击（位移6px跨行边界）→ 只涂第 1 行，下一行不被连带',
+          'diff=' + JSON.stringify(changed) + ' 行1=' + JSON.stringify(after[1] ? after[1].slice(0,10) : ''));
+  }
+  // 依次单击第 3~6 行（含空行/色块/链接/普通行），每次记录点击前后 diff
+  for (let i = 2; i <= 5; i++) {
+    const g = await freshLines();
+    const p = g.lines[i];
+    const beforeTxt = await evalJs(`document.getElementById('ideasTextarea').value`);
+    await pressMoveRelease([{ x: p.x, y: p.y }]);   // 纯单击：press→release 同坐标零位移
+    const after = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    const b4 = beforeTxt.split('\n');
+    const changed = [];
+    for (let j = 0; j < after.length; j++) if (after[j] !== b4[j]) changed.push(j);
+    const expectOne = after[i] === ('[g] ' + b4[i].replace(/^\[[ryg]\] /, ''));
+    check(changed.length === 1 && changed[0] === i && expectOne,
+          '单击第 ' + (i + 1) + ' 行 → 只有该行由无色变绿（diff=' + JSON.stringify(changed) + '）',
+          '点击后=' + JSON.stringify(after[i].slice(0, 16)));
+  }
+  // 微抖单击（向下 2px，仍落在同一行内）：也不该涂到下一行
+  {
+    const g = await freshLines();
+    const p = g.lines[6];   // 最后一行空行（未涂过）
+    const beforeTxt = await evalJs(`document.getElementById('ideasTextarea').value`);
+    await pressMoveRelease([{ x: p.x, y: p.y }, { x: p.x, y: p.y + 2 }]);
+    const after = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    const b4 = beforeTxt.split('\n');
+    const changed = [];
+    for (let j = 0; j < after.length; j++) if (after[j] !== b4[j]) changed.push(j);
+    check(changed.length === 1 && changed[0] === 6,
+          '带 2px 微抖单击最后一行空行 → 只涂该行',
+          'diff=' + JSON.stringify(changed));
+  }
   await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
   await sleep(200);
 
