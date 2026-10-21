@@ -240,11 +240,11 @@ pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为�
 ```bash
 node tests/ideas_mark_test.js    # 语法解析/涂抹/擦除/相邻并块 纯逻辑（29 项）
 node tests/syntax_check.js       # 抽取两个 HTML 的内联脚本做 vm.Script 语法检查
-node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停（40 项，出截图）
-node tests/e2e_mobile.js         # 手机版点按上色/点链接看说明/摘要去语法（21 项，出截图）
+node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停/手感（62 项，出截图）
+node tests/e2e_mobile.js         # 手机版点按上色/点链接看说明/摘要去语法（28 项，出截图）
 node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.py，走真实合并函数做往返断言（13 项）
 ```
-> ⚠️ **铁律**：E2E 必须跑在**隔离副本**上（脚本已自动生成 `tests/out/sandbox*/` 并把同步地址改成不可达端口）。曾因直接对真实 `todo.html` 跑浏览器测试、而悬浮球正在运行，导致测试文本被 8s 轮询合并进真实 `my_ideas` 并自动推上了 Gitee（污染提交 `b79f9d2ea0`/seq=171，已用 `tests/restore_cloud.js` 以 seq=172 回退）。**动测试前先停掉 `todo_tray`**；同理，**不要往正在运行且开着云同步的真实悬浮球 POST 测试数据**。
+> ⚠️ **铁律**：E2E 必须跑在**隔离副本**上（脚本已自动生成 `tests/out/sandbox*/` 并把同步地址改成不可达端口）。曾因直接对真实 `todo.html` 跑浏览器测试、而悬浮球正在运行，导致测试文本被 8s 轮询合并进真实 `my_ideas` 并自动推上了 Gitee（污染提交 `b79f9d2ea0`/seq=171，已用 `tests/restore_cloud.js` 以 seq=172 回退）。**动测试前先停掉 `todo_tray`**；同理，**不要往正在运行且开着云同步的真实悬浮球 POST 测试数据**。2026-10-21 再次发生同类事故（v12.3 手感排查时在真实页面用 bu 拖动，前 5 行染上 `[r]` 并推上云端）：恢复链路为 停悬浮球 → 本地 `todo_sync.json` 去 `[r]` 并把该记录 `ts` 置为当前（较新者胜）→ 同步修复浏览器 localStorage 并刷新 → 重启悬浮球 → 等自动同步把干净版覆盖云端 → Gitee API 回读确认 `seq` 与首行。此后凡涉及涂抹的实测一律只用隔离副本。
 > `sync_format_test.js` 的做法：把 `todo_tray.py` 复制到 `tests/out/sandbox-tray/`，其 `DATA_FILE` 等路径随 `__file__` 落在沙箱内，再 `import` 并直接调用 `merge_from_web` / `merge_data` / `_normalize_cloud_payload` / `_owned_fingerprint`，既走真实代码又不碰真实数据。
 > 维护用脚本（仅在事故时使用）：`clean_pollution.js`（删本地测试污染键）、`restore_cloud.js`（云端回退，含回读校验）、`diff_cloud.js`（本地与云端逐 key 对比）。
 
@@ -282,6 +282,7 @@ node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.p
 | v11 思路标记 + 悬停说明 | 思路正文内联语法 `[r]/[y]/[g]` 与 `[[文字\|说明]]`；阅读/编辑/涂抹三模式、荧光笔涂抹（手机点按）、相邻同色行自动并块且小球只在块首、悬停/点按看说明；不新增存储字段，三端同步格式不变 |
 | v12/v12.1 思路交互重做 | 蜡笔选色 + 阅读/编辑同屏 + 双击链接编辑；再合并为单区域所见即所得（contenteditable） |
 | v12.2 到点提醒 + 蜡笔修复 | 修复蜡笔选色面板被 `overflow:hidden` 裁剪；电脑悬浮球/手机 App 对日期规划「时间点」到点弹窗（20 分钟窗口、已提醒持久化、不依赖浏览器打开） |
+| v12.3 蜡笔手感 | ①拖动中实时预览上色（`.pen-live-r/y/g`，松手才写真源）；②`mousemove` 挂 `document`，命中三级兜底（closest → elementFromPoint → y 几何），拖出编辑区再拖回不断涂、编辑区外不乱涂；③commit 重排保持 `scrollTop`；④拖出窗口 `mouseleave` 兜底提交。涂抹实机测试必须在 `tests/out/sandbox/` 隔离副本（端口 8899→19999）上进行 |
 
 ## 12. Git 与协作
 

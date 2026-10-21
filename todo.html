@@ -1314,6 +1314,10 @@ body {
 .ideas-editor.pen-mode { cursor: crosshair; background: #fcfcff; }
 .ideas-editor .idea-line { min-height: 1.7em; border-radius: 4px; }
 .ideas-editor .idea-line.pen-hit { box-shadow: inset 0 0 0 2px #5c6bc0; }
+/* 涂抹实时预览：笔到色到（松手才真正落盘），像荧光笔划过 */
+.ideas-editor .idea-line.pen-live-r { background: rgba(255,82,82,.20); box-shadow: inset 3px 0 0 #ff5252; }
+.ideas-editor .idea-line.pen-live-y { background: rgba(255,193,7,.30); box-shadow: inset 3px 0 0 #ffc107; }
+.ideas-editor .idea-line.pen-live-g { background: rgba(76,175,80,.22); box-shadow: inset 3px 0 0 #4caf50; }
 .ideas-editor .idea-block { border-radius: 6px; padding: 1px 2px; }
 .ideas-editor .idea-block.idea-red, .ideas-editor .idea-block.idea-yellow, .ideas-editor .idea-block.idea-green { padding-left: 18px; }
 .ideas-editor .idea-block.idea-red { background: #ffe8e8; box-shadow: inset 3px 0 0 #ff5252; }
@@ -3621,13 +3625,46 @@ body {
     if (penTouched[idx]) return;
     penTouched[idx] = true;
     var el = penLineEls[idx];
-    if (el) el.classList.add('pen-hit');
+    if (el) {
+      el.classList.add('pen-hit');
+      // 实时预览：当前画笔颜色直接铺到行上，松手才真正写进真源
+      if (ideaPenColor && ideaPenColor !== 'e') el.classList.add('pen-live-' + ideaPenColor);
+    }
+  }
+
+  // 编辑器内按 y 坐标命中行（覆盖 padding/缝隙，避免拖到行间空隙就断涂）
+  function penLineAtY(y) {
+    for (var k in penLineEls) {
+      var el = penLineEls[k];
+      if (!el) continue;
+      var r = el.getBoundingClientRect();
+      if (y >= r.top && y <= r.bottom) return el;
+    }
+    return null;
   }
 
   // 涂抹命中：涂到某一行就标记该行；点在块的小球/色条上则整块一起换色
   function ideaPenHit(e) {
     var el = e.target;
-    var lineEl = el.closest ? el.closest('.idea-line') : null;
+    var lineEl = el && el.closest ? el.closest('.idea-line') : null;
+    if (!lineEl) {
+      // 兜底1：指针在子元素/滚动条边缘时，用命中测试再找一次
+      try {
+        var hit = document.elementFromPoint(e.clientX, e.clientY);
+        if (hit && hit !== el && hit.closest) lineEl = hit.closest('.idea-line') || null;
+      } catch (err) { lineEl = null; }
+    }
+    if (!lineEl) {
+      // 兜底2：指针在编辑器的 padding/行间缝隙里，按 y 坐标找该位置的行
+      var ed = ideaEditorEl();
+      if (ed) {
+        var edr = ed.getBoundingClientRect();
+        if (e.clientX >= edr.left && e.clientX <= edr.right &&
+            e.clientY >= edr.top && e.clientY <= edr.bottom) {
+          lineEl = penLineAtY(e.clientY);
+        }
+      }
+    }
     if (lineEl) {
       ideaPenTouch(parseInt(lineEl.dataset.line, 10));
       return;
@@ -3650,8 +3687,12 @@ body {
     });
     ta.value = lines.join('\n');
     penTouched = {};
+    // 重排前记住滚动位置：连续涂多行时不跳滚动
+    var ed = ideaEditorEl();
+    var st = ed ? ed.scrollTop : 0;
     ideasSavePage();          // 落盘
     ideaRenderIntoEditor();   // 重排单区域（涂抹结果就位），保持涂抹态可连续涂
+    if (ed) { try { ed.scrollTop = st; } catch (err) {} }
   }
 
   // ── 蜡笔按钮：开关涂抹态 + 弹出选色面板 ──
@@ -3700,14 +3741,27 @@ body {
     e.preventDefault();
     penPainting = true;
     penTouched = {};
+    // 清掉上次未松手遗留的预览样式（如拖出窗口未提交）
+    var ed0 = ideaEditorEl();
+    if (ed0) {
+      var olds = ed0.querySelectorAll('.pen-live-r, .pen-live-y, .pen-live-g');
+      for (var i = 0; i < olds.length; i++) olds[i].classList.remove('pen-live-r', 'pen-live-y', 'pen-live-g');
+    }
     ideaPenHit(e);
   });
-  previewEl.addEventListener('mousemove', function(e) {
+  // mousemove 挂 document：拖动中鼠标滑出窄编辑区（padding/滚动条/边缘）也不断涂
+  document.addEventListener('mousemove', function(e) {
     if (!penPainting) return;
     e.preventDefault();
     ideaPenHit(e);
   });
   document.addEventListener('mouseup', function() {
+    if (!penPainting) return;
+    penPainting = false;
+    ideaPenCommit();
+  });
+  // 拖出浏览器窗口：mouseup 不触发，用 mouseleave 兜底提交，预览不会残留
+  document.addEventListener('mouseleave', function() {
     if (!penPainting) return;
     penPainting = false;
     ideaPenCommit();

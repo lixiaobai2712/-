@@ -269,6 +269,83 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[4] === '[y] 打游戏'`),
         '点色块小球 → 整块一起换色（点一下即可）');
 
+  // ── 3c. 手感：实时预览 / 拖出编辑区不断涂 / padding 命中 / 保持滚动 ──
+  console.log('\n── 3c. 涂抹手感（实时预览·不断涂·保滚动）──');
+  async function freshLines() {
+    const rects = await evalJs(`(function(){
+      var els=document.querySelectorAll('#ideasEditor .idea-line');
+      var edr=document.getElementById('ideasEditor').getBoundingClientRect();
+      var out=[]; for (var i=0;i<els.length;i++){ var r=els[i].getBoundingClientRect();
+        out.push({i:i,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}); }
+      return JSON.stringify({edr:{l:Math.round(edr.left),r:Math.round(edr.right),t:Math.round(edr.top),b:Math.round(edr.bottom)}, lines:out});
+    })()`);
+    return JSON.parse(rects);
+  }
+  async function pressMoveRelease(points) {
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const type = i === 0 ? 'mousePressed' : 'mouseMoved';
+      await send('Input.dispatchMouseEvent', { type, x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: i === 0 ? 1 : 0 });
+      await sleep(80);
+    }
+    const last = points[points.length - 1];
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: last.x, y: last.y, button: 'left', clickCount: 1 });
+    await sleep(350);
+  }
+
+  // 选黄色进涂抹态（此时 line0=[r]、line3=[r]、line4=[y]）
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="y"]').click(); true`);
+  await sleep(250);
+  let geo = await freshLines();
+  const l0 = geo.lines[0], l2 = geo.lines[2];
+
+  // A. 拖出编辑区（左侧）再拖回：笔画不断，且在外期间不乱涂
+  await pressMoveRelease([
+    { x: l0.x, y: l0.y },
+    { x: geo.edr.l - 30, y: l0.y },   // 编辑区左侧之外（不该涂）
+    { x: l2.x, y: l2.y }              // 回到第 3 行
+  ]);
+  let ta = await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')`);
+  check(ta[0].indexOf('[y] ') === 0, '拖出编辑区再拖回 → 起点行已涂黄（笔画不断）', '实际=' + JSON.stringify(ta[0]));
+  check(ta[1].indexOf('[y] ') === -1, '在编辑区外悬停的那一行没有被乱涂', '实际=' + JSON.stringify(ta[1]));
+  check(ta[2].indexOf('[y] ') === 0, '拖回后命中第 3 行 → 已涂黄', '实际=' + JSON.stringify(ta[2]));
+
+  // B. 实时预览：按住拖动过程中行上先出颜色（不落盘），松手才写真源
+  geo = await freshLines();
+  const p1 = geo.lines[1], p2 = geo.lines[2];
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p1.x, y: p1.y, button: 'left', buttons: 1, clickCount: 1 });
+  await sleep(80);
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p2.x, y: p2.y, button: 'left', buttons: 1 });
+  await sleep(150); // 未松手
+  const midLive = await evalJs(`(function(){
+    var ls=document.querySelectorAll('#ideasEditor .idea-line');
+    return JSON.stringify({live1: ls[1].classList.contains('pen-live-y'), live2: ls[2].classList.contains('pen-live-y'),
+      ta1: document.getElementById('ideasTextarea').value.split('\\n')[1]});
+  })()`);
+  const mid = JSON.parse(midLive);
+  check(mid.live1 && mid.live2, '拖动中（未松手）：两行已实时铺上预览颜色（笔到色到）');
+  check(mid.ta1.indexOf('[y] ') === -1, '拖动中：真源未落盘（松手才生效）', '实际=' + JSON.stringify(mid.ta1));
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p2.x, y: p2.y, button: 'left', clickCount: 1 });
+  await sleep(350);
+  ta = await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')`);
+  check(ta[1].indexOf('[y] 记得问老师') === 0, '松手后 → 真源写入 [y]（line1）');
+  check(ta[2].indexOf('[y] ') === 0, '松手后 → 真源写入 [y]（line2）');
+  check(await evalJs(`document.querySelectorAll('#ideasEditor .pen-live-y').length === 0`),
+        '重排后预览样式已全部让位给真实色块');
+
+  // C. 点在编辑区 padding（非文字行）上也能命中该位置的行
+  geo = await freshLines();
+  const padY = geo.lines[0].y;
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(150);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="r"]').click(); true`);
+  await sleep(250);
+  await pressMoveRelease([{ x: geo.edr.l + 4, y: padY }]); // 编辑区左内边距 4px
+  ta = await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')`);
+  check(ta[0].indexOf('[r] ') === 0, '点在编辑区左 padding 上 → 命中该位置的行并涂红');
+
   // 截图（涂抹后的渲染效果）
   let shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT, 'pen-mode.png'), Buffer.from(shot.result.data, 'base64'));
@@ -345,6 +422,34 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // 备份机制（saveWithBackup 会写 _backups）
   const bk = await evalJs(`localStorage.getItem('my_ideas_backups')`);
   check(bk === null || typeof bk === 'string', '备份键未产生异常');
+
+  // ── 7. 手感：长文连续涂抹时保持编辑区滚动位置（重排不跳滚） ──
+  console.log('\n── 7. 长文涂抹滚动保持 ──');
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(150);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="g"]').click(); true`);
+  await sleep(250);
+  // 换成 60 行（先清空编辑器，再写真源触发「自愈重排」，与真实输入路径一致）
+  const many = [];
+  for (let i = 0; i < 60; i++) many.push('第 ' + i + ' 行测试内容 abcdefghijklmnopqrstuvwxyz');
+  await evalJs(`document.getElementById('ideasEditor').textContent = '';
+                document.getElementById('ideasTextarea').value = ${JSON.stringify(many.join('\n'))};
+                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await sleep(700);
+  check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-line').length === 60`), '60 行内容已渲染');
+  await evalJs(`var ed=document.getElementById('ideasEditor'); ed.scrollTop = ed.scrollHeight; true`);
+  await sleep(200);
+  const s1 = await evalJs(`document.getElementById('ideasEditor').scrollTop`);
+  check(s1 > 0, '编辑区已滚到底部（s1=' + s1 + '）');
+  geo = await freshLines();
+  const bottom = geo.lines[geo.lines.length - 1];
+  await pressMoveRelease([{ x: bottom.x, y: bottom.y }]);
+  const s2 = await evalJs(`document.getElementById('ideasEditor').scrollTop`);
+  const taLast = await evalJs(`(function(){ var v=document.getElementById('ideasTextarea').value.split('\\n'); return v[v.length-1]; })()`);
+  check(Math.abs(s2 - s1) <= 2, '涂完底部一行后滚动位置保持（不跳回顶部）', 's1=' + s1 + ' s2=' + s2);
+  check(taLast.indexOf('[g] 第 59 行') === 0, '底部那行已涂绿', '实际=' + JSON.stringify(taLast));
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
 
   console.log('\n────────────────────────');
   console.log(fail === 0 ? ('浏览器端全部通过：' + pass + ' 项') : (pass + ' 通过 / ' + fail + ' 失败'));
