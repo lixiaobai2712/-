@@ -531,6 +531,137 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
   await sleep(200);
 
+  // ── 9. 拖拽涂抹多行：正文内容完整（不消失） ──
+  console.log('\n── 9. 拖拽涂抹内容完整性 ──');
+  const rich9 = ['红块第一行', '红块第二行', '', '黄行', '普通行带着 [[链接|说明内容]] 测试', '最后一行收尾', ''].join('\n');
+  await evalJs(`document.getElementById('ideasEditor').textContent = '';
+                document.getElementById('ideasTextarea').value = ${JSON.stringify(rich9)};
+                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await sleep(600);
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(150);
+  await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="g"]').click(); true`);
+  await sleep(250);
+  // 场景A：从行0 拖到行2（经过空行1）——涂三行，正文都要在
+  {
+    let gA = await freshLines();
+    const p0 = gA.lines[0], p1 = gA.lines[1], p2 = gA.lines[2];
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p0.x, y: p0.y, button: 'left', buttons: 1, clickCount: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p1.x, y: p1.y, button: 'left', buttons: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p2.x, y: p2.y, button: 'left', buttons: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p2.x, y: p2.y, button: 'left', clickCount: 1 });
+    await sleep(400);
+    const tA = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    check(tA.length === 7, '拖涂后仍是 7 行（行数不丢）', '实际=' + tA.length);
+    check(tA[0] === '[g] 红块第一行', '行0 涂绿且正文在', '实际=' + JSON.stringify(tA[0]));
+    check(tA[1] === '[g] 红块第二行', '行1 涂绿且正文在', '实际=' + JSON.stringify(tA[1]));
+    check(tA[2] === '[g] ', '行2 空行涂绿（保持空）', '实际=' + JSON.stringify(tA[2]));
+    check(tA[3] === '黄行', '行3 未被波及（正文在）', '实际=' + JSON.stringify(tA[3]));
+  }
+  // 场景B：拖到链接行（行4），链接语法必须完整还原
+  {
+    let gB = await freshLines();
+    const p3 = gB.lines[3], p4 = gB.lines[4];
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p3.x, y: p3.y, button: 'left', buttons: 1, clickCount: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p4.x, y: p4.y, button: 'left', buttons: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p4.x, y: p4.y, button: 'left', clickCount: 1 });
+    await sleep(400);
+    const tB = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    check(tB[3] === '[g] 黄行', '行3 涂绿且正文在', '实际=' + JSON.stringify(tB[3]));
+    check(tB[4] === '[g] 普通行带着 [[链接|说明内容]] 测试',
+          '行4 涂绿且链接语法完整还原', '实际=' + JSON.stringify(tB[4]));
+    check(tB[5] === '最后一行收尾', '行5 未被波及', '实际=' + JSON.stringify(tB[5]));
+  }
+  // 场景C：快速拖拽（事件无停顿）模拟手速快
+  {
+    let gC = await freshLines();
+    const p5 = gC.lines[5], p6 = gC.lines[6];
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p5.x, y: p5.y, button: 'left', buttons: 1, clickCount: 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p6.x, y: p6.y, button: 'left', buttons: 1 });
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p6.x, y: p6.y, button: 'left', clickCount: 1 });
+    await sleep(400);
+    const tC = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    check(tC[5] === '[g] 最后一行收尾', '快速拖涂行5 正文在', '实际=' + JSON.stringify(tC[5]));
+    check(tC[6] === '[g] ', '快速拖涂行6 空行在', '实际=' + JSON.stringify(tC[6]));
+  }
+  // 场景D：涂抹提交后立即派发 input（模拟重排后浏览器合成 input）——真源不能被改写丢行
+  {
+    const beforeD = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    const gD = await freshLines();
+    const p0 = gD.lines[0];
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p0.x, y: p0.y, button: 'left', buttons: 1, clickCount: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p0.x, y: p0.y, button: 'left', clickCount: 1 });
+    await sleep(300);
+    await evalJs(`document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+    await sleep(500);
+    const tD = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    check(tD.length === 7, '提交后 input 同步仍保持 7 行', '实际=' + tD.length);
+    check(tD[0].indexOf('红块第一行') !== -1 && tD[1].indexOf('红块第二行') !== -1,
+          'input 同步后行0/1 正文仍在', '实际=' + JSON.stringify([tD[0], tD[1]]));
+    check(tD[4].indexOf('[[链接|说明内容]]') !== -1, 'input 同步后链接语法仍在', '实际=' + JSON.stringify(tD[4]));
+    void beforeD;
+  }
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
+
+  // ── 10. 点蜡笔即涂 + 涂抹态防文本选择（「两行消失」回归） ──
+  console.log('\n── 10. 点蜡笔即涂 / 防文本选择误删 ──');
+  const rich10 = ['第一行内容', '第二行内容', '', '第四行内容'].join('\n');
+  await evalJs(`document.getElementById('ideasEditor').textContent = '';
+                document.getElementById('ideasTextarea').value = ${JSON.stringify(rich10)};
+                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await sleep(600);
+  // 点蜡笔（不选色）→ 应立即进入涂抹态（默认红色），面板同步弹出
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(250);
+  check(await evalJs(`document.getElementById('ideasEditor').classList.contains('pen-mode')`),
+        '点蜡笔（不选色）→ 直接进入涂抹态');
+  check(await evalJs(`document.getElementById('ideasPenGroup').classList.contains('open')`),
+        '点蜡笔后面板同步弹出');
+  // 立即拖动两行（不选色）→ 应涂上当前笔色，内容不丢；轨迹只涂有事件经过的行
+  {
+    const g10 = await freshLines();
+    const a = g10.lines[0], b = g10.lines[2];
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: a.x, y: a.y, button: 'left', buttons: 1, clickCount: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: b.x, y: b.y, button: 'left', buttons: 1 });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: b.x, y: b.y, button: 'left', clickCount: 1 });
+    await sleep(400);
+    const t10 = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+    check(/^\[[ryg]\] 第一行内容$/.test(t10[0]) && t10[0].indexOf('第一行内容') !== -1,
+          '未选色直接拖动 → 当前笔色涂上且正文在', '实际=' + JSON.stringify(t10[0]));
+    check(t10[1] === '第二行内容', '行1 未被误涂（正文原样）', '实际=' + JSON.stringify(t10[1]));
+    check(/^\[[ryg]\] $/.test(t10[2]) && t10[3] === '第四行内容',
+          '空行涂上笔色、末行不受波及', '实际=' + JSON.stringify([t10[2], t10[3]]));
+    // 即使存在选区，涂抹态 Delete/Backspace 拦截 → 内容不可被删（两行消失的最终防线）
+    await evalJs(`window.getSelection().removeAllRanges(); true`);
+    check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n').length === 4`),
+          '拖拽后行数仍 4 行');
+  }
+  // 涂抹态下 Delete/Backspace 必须被拦截（防误删选中内容）
+  check(await evalJs(`(() => {
+    var ev = new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true });
+    document.getElementById('ideasEditor').dispatchEvent(ev);
+    return ev.defaultPrevented;
+  })()`), '涂抹态 Delete 键被拦截');
+  check(await evalJs(`(() => {
+    var ev = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+    document.getElementById('ideasEditor').dispatchEvent(ev);
+    return ev.defaultPrevented;
+  })()`), '涂抹态 Backspace 键被拦截');
+  check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n').length === 4`),
+        '键盘拦截后行数仍 4 行');
+  // 退出涂抹态
+  await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
+  await sleep(200);
+
   console.log('\n────────────────────────');
   console.log(fail === 0 ? ('浏览器端全部通过：' + pass + ' 项') : (pass + ' 通过 / ' + fail + ' 失败'));
   console.log('截图目录: ' + OUT);

@@ -1311,7 +1311,7 @@ body {
 .ideas-editor:empty::before {
   content: attr(data-placeholder); color: #bbb; pointer-events: none;
 }
-.ideas-editor.pen-mode { cursor: crosshair; background: #fcfcff; }
+.ideas-editor.pen-mode { cursor: crosshair; background: #fcfcff; user-select: none; -webkit-user-select: none; }
 .ideas-editor .idea-line { min-height: 1.7em; border-radius: 4px; }
 .ideas-editor .idea-line.pen-hit { box-shadow: inset 0 0 0 2px #5c6bc0; }
 /* 涂抹实时预览：笔到色到（松手才真正落盘），像荧光笔划过 */
@@ -3711,7 +3711,10 @@ body {
       ideasExitPen();
       return;
     }
-    pop.classList.toggle('open');
+    // 点蜡笔即进入涂抹态（用上次颜色，默认红）并弹出选色面板：
+    // 避免「面板开了但没进涂抹态 → 拖动变成浏览器文本选择 → 误删两行」
+    pop.classList.add('open');
+    if (ideaMode !== 'pen') ideasEnterPen();
   });
   // 点面板外关闭
   document.addEventListener('click', function(e) {
@@ -3743,7 +3746,15 @@ body {
     openIdeaEditFromEl(link);
   });
   previewEl.addEventListener('mousedown', function(e) {
-    if (ideaMode !== 'pen' || ideaPenColor === '' || e.button !== 0) return;
+    if (e.button !== 0) return;
+    if (ideaMode !== 'pen') {
+      // 面板开着但未进涂抹态：也必须拦掉文本选择——否则拖动会选中文字，
+      // 用户误按删除/输入就让选中内容消失（「涂到下一行两行都消失」的根因）
+      var pop = document.getElementById('ideasPenGroup');
+      if (pop && pop.classList.contains('open')) e.preventDefault();
+      return;
+    }
+    if (ideaPenColor === '') { e.preventDefault(); return; }  // 未选色也不许选中文本
     e.preventDefault();
     penPainting = true;
     penTouched = {};
@@ -3796,6 +3807,15 @@ body {
     if (!e.target.closest || !e.target.closest('.idea-line')) return;
     ideaPenHit(e);
     ideaPenCommit();
+  });
+  // 涂抹态防「文本拖拽移动」：浏览器对 contenteditable 选中文本的默认拖拽会把
+  // 文本搬走/删除，拖拽涂抹必须掐掉这个默认行为（配合 user-select:none 双保险）
+  previewEl.addEventListener('dragstart', function(e) {
+    if (ideaMode === 'pen') e.preventDefault();
+  });
+  // 涂抹态禁键盘编辑：Delete/Backspace/输入都会把选中内容删掉，涂抹期间不编辑
+  previewEl.addEventListener('keydown', function(e) {
+    if (ideaMode === 'pen') e.preventDefault();
   });
 
   // ── 悬停说明（tooltip） ──
