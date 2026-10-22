@@ -2,6 +2,17 @@
 
 ## 2026-10-22
 
+### 重构：v12.5 思路编辑器改为「编辑会话 ↔ 渲染视图」两态分离（用户反馈「又出现点了没用的情况」，审查架构后拍板方案A）
+- 用户原话：「出现bug了，又出现了点了没用的情况了。你把这部分的代码全部看一遍，好好观察一下是不是架构有问题，再去github或者其他博客看看，有没有类似项目可以借鉴一下」→ 架构审查 + 外部调研（contenteditable.lab《Editor Architecture》、@barocss/editor-view-dom 分层叠加、edit-content、edodo-write、CKEditor 5 Highlight）后向用户提三方案，**用户明确选方案A：编辑/渲染两态分离**
+- 架构问题（四轮修复链的根源）：v12.1 起的「contenteditable 单区域所见即所得」把 `[r]` 色块、`.idea-link` 等**结构元素直接塞进可编辑区**，浏览器原生编辑（选区/拖拽/删除/输入合成）与自绘结构持续打架——前四轮（手抖误涂、两行消失、点了没用）都是同一根因的不同表现
+- 方案A 落地（数据格式零变化：`my_ideas` 仍是 `{日期:{text,ts}}`，`[r]/[y]/[g]` 与 `[[显示|说明]]` 语法不变）：
+  - **渲染视图（只读）**：`contenteditable="false"`，色块/小球/链接/涂抹只在这一层；点击非链接区域 → 进入编辑会话（光标定位点击行尾），点击链接交给 tooltip/双击编辑
+  - **编辑会话（纯文本）**：`contenteditable="true"` 逐行 div（空行 `<br>` 占位），DOM 只有浏览器原生文本、无反解；input 实时同步真源，**不重排、不打断输入流**；失焦 = 会话结束 → 写回真源 → 渲染
+  - **真源同步用逐行 `textContent` 拼接**（新 `ideaEdPlainText()`）——**不用 `innerText`**：innerText 会把空行 div 合并掉，round-trip 丢行（这正是方案A要消灭的数据破坏）
+  - `ideasEnterPen`/`ideasRenderPreview` 幂等切换（编辑会话 → 写回 → 只读渲染）；`ideaInsertLink` 插入后**停留编辑会话**（失焦才渲染出链接）
+  - 新状态 `ideaView`（'edit'/'render'）；新增 `ideaEnterEditView`/`ideaEnterRenderView`/`ideaPlaceCaretAtLine`/`ideaRestoreCaret`；删除旧 `ideaLineText`/`ideaSaveCaret`/`ideaRestoreCaret`；`window.__ideasApi` 只读测试钩子（E2E 注入用）
+- 测试：E2E 全面适配（注入改「设真源 → `__ideasApi.render()`」；§2 改渲染视图断言；**新增 §2b 编辑会话数据守恒 round-trip**：点击进编辑→纯文本 5 行→输入实时同步→失焦→空行/标记/链接/修改全部保留→回只读；§5 插入链接后停留编辑会话、失焦渲染 2 链接），电脑端 E2E 93→**103 项**；纯逻辑 29、手机 28、同步格式、悬浮球提醒、语法检查全绿；全程在 `tests/out/sandbox/` 隔离副本验证
+
 ### 修复：v12.4 蜡笔涂抹不再让内容消失（用户反馈「涂到下一行会导致两行都消失」）
 - 用户原话：「不好使，蜡笔涂抹有时候涂到下一行会导致两行都消失」
 - 根因（在隔离副本用真实鼠标复现）：**点蜡笔按钮只弹选色面板、不进入涂抹态**。面板开着但 `ideaMode` 不是 `'pen'` 时，编辑器 mousedown 被 guard 直接 return、**没调用 preventDefault** → 浏览器进入**文本选择**模式，拖动会选中拖过的两行文字（蓝色高亮）→ 用户松手看到「没涂上色、选中了两行」，误按 Delete/Backspace 或直接输入 → **选中的两行内容被删除/替换 → 两行消失**。从编辑器外起笔拖入还会选中工具栏文字，同样危险

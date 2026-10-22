@@ -1312,6 +1312,9 @@ body {
   content: attr(data-placeholder); color: #bbb; pointer-events: none;
 }
 .ideas-editor.pen-mode { cursor: crosshair; background: #fcfcff; user-select: none; -webkit-user-select: none; }
+/* 方案A：渲染视图是只读投影层，点击可进入编辑，鼠标给「可点」提示 */
+.ideas-editor[contenteditable="false"] { cursor: text; }
+.ideas-editor[contenteditable="false"]:not(.pen-mode):hover { background: #fbfbff; }
 .ideas-editor .idea-line { min-height: 1.7em; border-radius: 4px; }
 .ideas-editor .idea-line.pen-hit { box-shadow: inset 0 0 0 2px #5c6bc0; }
 /* 涂抹实时预览：笔到色到（松手才真正落盘），像荧光笔划过 */
@@ -1592,8 +1595,8 @@ body {
       </div>
       <div class="ideas-editor-wrap" id="ideasEditorWrap">
         <textarea id="ideasTextarea" style="display:none;" aria-hidden="true"></textarea>
-        <div class="ideas-editor ideas-editable" id="ideasEditor" contenteditable="true"
-             data-placeholder="随手记录思路、灵感、复盘... 输入 [[文字|说明]] 就地变成链接，双击可改；🖍 蜡笔涂抹打标记"></div>
+        <div class="ideas-editor ideas-editable" id="ideasEditor" contenteditable="false"
+             data-placeholder="随手记录思路、灵感、复盘... 输入 [[文字|说明]] 变成链接，双击可改；🖍 蜡笔涂抹打标记"></div>
       </div>
     </div>
     <div class="ideas-side">
@@ -3255,7 +3258,7 @@ body {
     var rec = store[date];
     var text = (rec && typeof rec.text === 'string') ? rec.text : '';
     document.getElementById('ideasTextarea').value = text;
-    ideaRenderIntoEditor();
+    ideaEnterRenderView();
     var isToday = (date === todayStr());
     document.getElementById('ideasDateLabel').textContent =
       isToday ? ('今天 · ' + date) : date;
@@ -3322,30 +3325,22 @@ body {
 
   document.getElementById('ideasToggle').addEventListener('click', toggleIdeas);
   document.getElementById('ideasClose').addEventListener('click', toggleIdeas);
-  // contenteditable 是唯一输入区：输入时同步真源，语法闭合（]] 或行首标记）后重排
+  // 方案A：编辑会话（纯文本）输入时同步真源，无反解、不重排、不打断输入流；
+  // 渲染视图（只读 contenteditable=false）不会产生 input，此处兜底忽略
   document.getElementById('ideasEditor').addEventListener('input', function() {
+    if (ideaView !== 'edit') return;
     clearTimeout(ideasTimer);
     var ta = document.getElementById('ideasTextarea');
     if (!ta) return;
-    var plain = ideaEdPlainText();
-    // 自愈：编辑器为空但真源有内容（如初始化渲染未跟上）→ 用真源重排，别清空真源
-    if (plain.trim() === '' && ta.value && ta.value.trim() !== '') {
-      ideaRenderIntoEditor();
-      return;
-    }
-    ta.value = plain;
-    // 链接闭合（出现 ]]）或行首标记出现时，重排一次让效果就位
-    if (/\]\]/.test(ta.value || '') || /(^|\n)[ \t]*\[[rygRYG]\][ \t]?/.test(ta.value || '')) {
-      var caret = ideaSaveCaret();
-      ideaRenderIntoEditor();
-      ideaRestoreCaret(caret);
-    }
+    ta.value = ideaEdPlainText();
     ideasTimer = setTimeout(saveIdeas, 300);
   });
+  // 失焦 = 编辑会话结束：写回真源 → 渲染视图（色块/链接就位）
   document.getElementById('ideasEditor').addEventListener('blur', function() {
+    if (ideaView !== 'edit') return;
     var ta = document.getElementById('ideasTextarea');
     if (ta) ta.value = ideaEdPlainText();
-    ideaRenderIntoEditor();
+    ideaEnterRenderView();
     saveIdeas();
   });
   document.getElementById('ideasToday').addEventListener('click', ideasGoToday);
@@ -3369,6 +3364,7 @@ body {
   var IDEA_MODE_KEY = 'my_ideas_mode';          // 'edit'（常态） | 'pen'（涂抹中）
   var IDEA_PEN_COLOR_KEY = 'my_ideas_pen_color';
   var ideaMode = 'edit';
+  var ideaView = 'render';      // 方案A：'edit'=纯文本编辑会话（无反解）；'render'=只读渲染视图（色块/链接/涂抹）
   var ideaPenColor = 'r';
   var penPainting = false;
   var penTouched = {};        // {行号: true} 本次涂抹碰到的行
@@ -3446,32 +3442,97 @@ body {
   // 视觉上只有一个可编辑区域；真实语法文本存于隐藏 textarea（数据层不变）。
   function ideaEditorEl() { return document.getElementById('ideasEditor'); }
 
-  // contenteditable 的纯文本（保留换行）——输入时的真源同步
-  // 按行 DOM 遍历：链接 span 用 data-raw 还原语法，行间加 \n，不依赖换行正则
+  // 方案A：编辑会话的真源同步——逐行取 textContent（不用 innerText：
+  // innerText 会把空行 div 合并掉，round-trip 丢行，这正是方案A要消灭的数据破坏）
+  // 渲染视图（只读）不产生输入，兜底直接返回真源，绝不用渲染 DOM 反向污染数据
   function ideaEdPlainText() {
     var ed = ideaEditorEl();
     if (!ed) return '';
-    var out = [];
-    var lineEls = ed.querySelectorAll('.idea-line');
-    for (var i = 0; i < lineEls.length; i++) {
-      out.push(ideaLineText(lineEls[i]));
+    if (ideaView === 'edit') {
+      var out = [];
+      var blocks = ed.children;
+      for (var i = 0; i < blocks.length; i++) {
+        out.push((blocks[i].textContent || '').replace(/\u00a0/g, ' '));
+      }
+      return out.join('\n');
     }
-    // 兜底：编辑器里还没有 .idea-line（用户刚输入未重排），按 innerText 取
-    if (out.length === 0) return (ed.innerText || '').replace(/^\n+|\n+$/g, '');
-    return out.join('\n');
+    var ta = document.getElementById('ideasTextarea');
+    return (ta && ta.value) || '';
   }
-  // 取单行文本：链接 span 用 data-raw 还原语法，行首标记用 data-prefix 恢复，其余取纯文本
-  function ideaLineText(lineEl) {
-    var tmp = document.createElement('div');
-    tmp.appendChild(lineEl.cloneNode(true));
-    var links = tmp.querySelectorAll('.idea-link');
-    for (var i = links.length - 1; i >= 0; i--) {
-      var raw = links[i].getAttribute('data-raw');
-      var frag = document.createRange().createContextualFragment(raw);
-      links[i].parentNode.replaceChild(frag, links[i]);
+
+  // ── 方案A：编辑会话（纯文本，浏览器原生编辑） ↔ 渲染视图（只读，色块/链接/涂抹） ──
+  // 原则：视图是模型的投影。输入只在纯文本会话发生，渲染只发生在会话外，
+  // 彻底消除「contenteditable 里塞结构 → 选区/拖拽/删除冲突」这一类 bug。
+  function ideaEnterEditView(lineIdx) {
+    var ed = ideaEditorEl();
+    var ta = document.getElementById('ideasTextarea');
+    if (!ed || !ta || ideaView === 'edit') { if (ed) ed.focus(); return; }
+    ideaView = 'edit';
+    ed.contentEditable = 'true';
+    // 渲染结构 → 纯文本（换行保留），浏览器接管后续一切输入
+    ed.innerHTML = '';
+    var val = ta.value || '';
+    if (val !== '') {
+      var lines = val.split('\n');
+      var html = '';
+      for (var i = 0; i < lines.length; i++) {
+        // 空行用 <br> 占位：否则 div 无高度、innerText/textContent 都不保留空行（round-trip 丢行）
+        html += '<div>' + (lines[i] ? escapeHtml(lines[i]) : '<br>') + '</div>';
+      }
+      ed.innerHTML = html;
     }
-    var prefix = lineEl.getAttribute && lineEl.getAttribute('data-prefix');
-    return (prefix || '') + (tmp.textContent || '');
+    ed.focus();
+    ideaPlaceCaretAtLine(lineIdx);
+  }
+  function ideaEnterRenderView() {
+    var ed = ideaEditorEl();
+    if (!ed) return;
+    var ta = document.getElementById('ideasTextarea');
+    if (ideaView === 'edit' && ta) ta.value = ideaEdPlainText();
+    ideaView = 'render';
+    ed.contentEditable = 'false';
+    try { window.getSelection().removeAllRanges(); } catch(e) {}
+    ideaRenderIntoEditor();
+  }
+  // 编辑会话里把光标放到第 lineIdx 行末尾（-1=全文末尾）；行 = 浏览器原生块级 div
+  function ideaPlaceCaretAtLine(lineIdx) {
+    var ed = ideaEditorEl();
+    var sel = window.getSelection();
+    if (!ed || !sel) return;
+    var blocks = ed.children;
+    var target = null;
+    if (lineIdx >= 0 && blocks[lineIdx]) target = blocks[lineIdx];
+    else if (blocks.length) target = blocks[blocks.length - 1];
+    var w = document.createTreeWalker(target || ed, NodeFilter.SHOW_TEXT, null, false);
+    var last = null;
+    while (w.nextNode()) last = w.currentNode;
+    var range = document.createRange();
+    if (last) { range.setStart(last, last.nodeValue.length); range.collapse(true); }
+    else if (target) { range.selectNodeContents(target); range.collapse(false); }
+    else { range.selectNodeContents(ed); range.collapse(false); }
+    try { sel.removeAllRanges(); sel.addRange(range); } catch(e) {}
+  }
+  // 编辑会话里按「纯文本字符偏移」放光标（插入链接后用）
+  function ideaRestoreCaret(pos) {
+    var ed = ideaEditorEl();
+    if (!ed || pos < 0) return;
+    try {
+      var range = document.createRange();
+      var sel = window.getSelection();
+      var walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null, false);
+      var acc = 0, target = null;
+      while (walker.nextNode()) {
+        var len = walker.currentNode.nodeValue.length;
+        if (acc + len >= pos) { target = walker.currentNode; break; }
+        acc += len;
+      }
+      if (target) {
+        range.setStart(target, pos - acc);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    } catch(e) {}
   }
 
   // 把隐藏 textarea 的语法文本渲染进 contenteditable（行首标记→色块，[[..]]→链接）
@@ -3487,49 +3548,6 @@ body {
       lines[i].setAttribute('data-line', i);
       penLineEls[i] = lines[i];
     }
-  }
-
-  // 光标位置：以「字符偏移」保存/恢复（基于纯文本）
-  function ideaSaveCaret() {
-    var ed = ideaEditorEl();
-    if (!ed) return -1;
-    var sel = window.getSelection && window.getSelection();
-    if (!sel || sel.rangeCount === 0) return -1;
-    var range = sel.getRangeAt(0);
-    // 简化：用内联文本节点相对偏移近似（只支持单行内偏移）
-    var node = range.startContainer;
-    var offset = range.startOffset;
-    if (node.nodeType === 3) {
-      // 找到该文本节点在 editor 内的字符位置
-      var pre = document.createRange();
-      pre.selectNodeContents(ed);
-      pre.setEnd(node, offset);
-      return pre.toString().length;
-    }
-    return -1;
-  }
-  function ideaRestoreCaret(pos) {
-    var ed = ideaEditorEl();
-    if (!ed || pos < 0) return;
-    try {
-      var node = ed.firstChild;
-      var range = document.createRange();
-      var sel = window.getSelection();
-      // 简单恢复：从头数 pos 个字符
-      var walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null, false);
-      var acc = 0, target = null;
-      while (walker.nextNode()) {
-        var len = walker.currentNode.nodeValue.length;
-        if (acc + len >= pos) { target = walker.currentNode; break; }
-        acc += len;
-      }
-      if (target) {
-        range.setStart(target, pos - acc);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    } catch(e) {}
   }
 
   function ideaBuildEditableHtml(raw) {
@@ -3582,13 +3600,18 @@ body {
     return out;
   }
 
-  // 把真源渲染进 contenteditable（单区域），并重建涂抹用的行索引
+  // 进入只读渲染视图（色块/链接/涂抹都只在这一层发生）并重建涂抹用的行索引
   function ideasRenderPreview() {
+    var ed = ideaEditorEl();
     var ta = document.getElementById('ideasTextarea');
     if (!ta) return;
+    // 若还在编辑会话：先写回真源，再切只读渲染视图（幂等）
+    if (ideaView === 'edit' && ed) ta.value = ideaEdPlainText();
+    ideaView = 'render';
+    if (ed) ed.contentEditable = 'false';
+    try { window.getSelection().removeAllRanges(); } catch(e) {}
     ideaRenderIntoEditor();
     penLineEls = {};
-    var ed = ideaEditorEl();
     if (!ed) return;
     var lines = ed.querySelectorAll('.idea-line');
     for (var i = 0; i < lines.length; i++) {
@@ -3608,6 +3631,14 @@ body {
     }
   }
 
+  // 供自动化测试的只读钩子（等价「从存储加载 → 渲染视图」；正常运行不依赖它）
+  window.__ideasApi = {
+    render: function() { ideasRenderPreview(); },
+    enterEdit: function() { ideaEnterEditView(-1); },
+    view: function() { return ideaView; },
+    mode: function() { return ideaMode; }
+  };
+
   // ── 蜡笔：选色后保持涂抹态（可连续涂多行），再点蜡笔按钮退出 ──
   function ideasEnterPen() {
     ideaMode = 'pen';
@@ -3615,7 +3646,7 @@ body {
     if (ed) ed.classList.add('pen-mode');
     try { localStorage.setItem(IDEA_MODE_KEY, 'pen'); } catch(e) {}
     hideIdeaTip();
-    ideasRenderPreview();
+    ideasRenderPreview();   // 内含「编辑会话 → 只读渲染视图」的切换
   }
   function ideasExitPen() {
     if (penPainting) { penPainting = false; penTouched = {}; }
@@ -3803,10 +3834,20 @@ body {
   // 这里只兜底「只派发 click 的异常事件源」，并用 penJustCommitted 挡掉重排后的二次命中）
   previewEl.addEventListener('click', function(e) {
     if (penJustCommitted) { penJustCommitted = false; return; }
-    if (ideaMode !== 'pen' || ideaPenColor === '' || penPainting) return;
-    if (!e.target.closest || !e.target.closest('.idea-line')) return;
-    ideaPenHit(e);
-    ideaPenCommit();
+    if (ideaMode === 'pen') {
+      if (ideaPenColor === '' || penPainting) return;
+      if (!e.target.closest || !e.target.closest('.idea-line')) return;
+      ideaPenHit(e);
+      ideaPenCommit();
+      return;
+    }
+    // 方案A：渲染视图（只读）点击非链接区域 → 进入编辑会话，光标定位到点击行尾
+    if (ideaView === 'render') {
+      if (e.target.closest && e.target.closest('.idea-link')) return;  // 链接交给 tooltip/双击编辑
+      var lineEl = e.target.closest ? e.target.closest('.idea-line') : null;
+      var idx = lineEl ? parseInt(lineEl.getAttribute('data-line') || '-1', 10) : -1;
+      ideaEnterEditView(idx);
+    }
   });
   // 涂抹态防「文本拖拽移动」：浏览器对 contenteditable 选中文本的默认拖拽会把
   // 文本搬走/删除，拖拽涂抹必须掐掉这个默认行为（配合 user-select:none 双保险）
@@ -3871,6 +3912,9 @@ body {
   }
   function ideaInsertLink(label, tip) {
     if (ideaMode !== 'edit') { ideasExitPen(); }
+    // 方案A：插入前确保在编辑会话（渲染视图 → 纯文本视图，光标在末尾），
+    // 插入后保持编辑会话（不渲染），用户可继续输入，失焦后渲染出链接
+    if (ideaView !== 'edit') ideaEnterEditView(-1);
     var ta = document.getElementById('ideasTextarea');
     var snippet = tip ? ('[[' + label + '|' + tip + ']]') : ('[[' + label + ']]');
     var val = ta.value || '';
@@ -3891,10 +3935,14 @@ body {
     ta.value = val.slice(0, start) + snippet + val.slice(end);
     ideaEditTarget = null;   // 用完即清
     ideasSavePage();
-    ideaRenderIntoEditor();
-    // 光标放到插入后位置
+    // 编辑会话内同步纯文本视图并放光标（不渲染，避免打断输入）
+    var ed = ideaEditorEl();
+    var html = '';
+    var ls = ta.value.split('\n');
+    for (var i = 0; i < ls.length; i++) html += '<div>' + escapeHtml(ls[i]) + '</div>';
+    ed.innerHTML = html;
+    ed.focus();
     ideaRestoreCaret(caret);
-    ideaEditorEl().focus();
   }
 
   function openIdeaLinkModal() {

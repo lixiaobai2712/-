@@ -121,13 +121,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(await evalJs(`!!document.getElementById('ideasCrayonBtn') && !!document.getElementById('ideasPenGroup')`),
         '蜡笔按钮与选色面板已就位');
 
-  // ── 2. 写入内容并渲染（单区域：contenteditable 所见即所得） ──
-  console.log('\n── 2. 输入内容 / 就地渲染 ──');
+  // ── 2. 写入内容并渲染（方案A：真源 → 只读渲染视图；点击编辑器进入纯文本编辑会话） ──
+  console.log('\n── 2. 输入内容 / 渲染视图 ──');
   const content = ['[r] 今天必须交的实验报告', '记得问老师 [[评分标准|实验报告占平时分 40%，迟交扣 10%]]', '', '看剧', '打游戏'].join('\n');
   const wantText = content;
-  // 模拟真实流程：先设真源（等同从存储加载），派发 input 触发同步+渲染
+  // 模拟真实流程：设真源（等同从存储加载）→ 渲染视图
   await evalJs(`document.getElementById('ideasTextarea').value = ${JSON.stringify(content)}; true`);
-  await evalJs(`document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await evalJs(`window.__ideasApi.render(); true`);
   await sleep(600);
   check(await evalJs(`document.getElementById('ideasTextarea').value`) === wantText, '真源内容正确（含 [r] 与 [[..]] 语法）',
         '实际: ' + JSON.stringify(String(await evalJs(`document.getElementById('ideasTextarea').value`)).slice(0, 80)));
@@ -138,18 +138,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(after === wantText, '1.2s 后内容仍在（未被应用重置）',
         after === wantText ? '' : '实际: ' + JSON.stringify(String(after).slice(0, 80)));
 
-  await evalJs(`document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
-  await sleep(600);
-  console.log('     [debug] 第2次input后 真源:', JSON.stringify(await evalJs(`document.getElementById('ideasTextarea').value`)));
-  console.log('     [debug] 编辑器HTML:', JSON.stringify(await evalJs(`document.getElementById('ideasEditor').innerHTML.slice(0,150)`)));
-  console.log('     [debug] 错误:', await evalJs(`(window.__errs||[]).join(';')`));
+  // 渲染视图：只读（contenteditable=false）+ 色块/链接/小球就位
+  check(await evalJs(`document.getElementById('ideasEditor').contentEditable === 'false'`),
+        '渲染视图为只读（contenteditable=false）');
   check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-block.idea-red').length === 1`),
-        '红块就地渲染出 1 块',
+        '红块渲染出 1 块',
         'editor 长度=' + (await evalJs(`document.getElementById('ideasEditor').innerHTML.length`)));
   check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-ball').length === 1`),
         '小球数量 = 1（只出现在块首）');
   check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-link').length === 1`),
-        '说明链接就地渲染出 1 个');
+        '说明链接渲染出 1 个');
   check(await evalJs(`document.querySelector('#ideasEditor .idea-link').getAttribute('data-tip') === '实验报告占平时分 40%，迟交扣 10%'`),
         '说明内容正确挂在 data-tip 上');
   check(await evalJs(`document.getElementById('ideasEditor').textContent.indexOf('[r]') === -1`),
@@ -158,6 +156,41 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         '正文仍是 5 行（存储未丢行）');
   check(await evalJs(`!!document.getElementById('ideasEditor') && !document.getElementById('ideasPreview')`),
         '单区域：只有 contenteditable，无独立预览元素');
+
+  // ── 2b. 编辑会话 round-trip：渲染 → 点击进入纯文本编辑 → 失焦渲染，内容守恒 ──
+  console.log('\n── 2b. 编辑会话数据守恒（方案A核心） ──');
+  // 点击编辑器（渲染视图）→ 进入纯文本编辑会话（点第 4 行「看剧」，无链接无标记）
+  const g2 = await freshLines();
+  const p2b = g2.lines[3];
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p2b.x, y: p2b.y, button: 'left', clickCount: 1 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p2b.x, y: p2b.y, button: 'left', clickCount: 1 });
+  await sleep(400);
+  check(await evalJs(`document.getElementById('ideasEditor').contentEditable === 'true'`),
+        '点击渲染视图 → 进入可编辑会话');
+  check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-link').length === 0`),
+        '编辑会话为纯文本（无结构元素）');
+  check(await evalJs(`document.getElementById('ideasEditor').children.length === 5`),
+        '编辑会话仍是 5 行（空行 <br> 占位保留）');
+  // 编辑会话中修改一行，失焦后渲染：修改保留 + 内容守恒（enterEdit 已把光标放到行尾）
+  await evalJs(`(() => {
+    var ed = document.getElementById('ideasEditor');
+    ed.focus();
+    document.execCommand('insertText', false, '完');
+    return true;
+  })()`);
+  await sleep(300);
+  check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n').length === 5`),
+        '编辑会话输入实时同步真源（仍是 5 行）');
+  // 失焦 → 渲染视图，round-trip 无丢行
+  await evalJs(`document.getElementById('ideasEditor').dispatchEvent(new Event('blur', { bubbles: true })); true`);
+  await sleep(400);
+  const rt = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
+  check(rt.length === 5, '编辑→失焦 round-trip 行数守恒（含空行）', '实际=' + rt.length);
+  check(rt[0] === '[r] 今天必须交的实验报告' && rt[1].indexOf('[[评分标准|') !== -1,
+        'round-trip 后标记与链接语法原样保留', '实际=' + JSON.stringify([rt[0], rt[1]]));
+  check(rt[2] === '' && rt[3] === '看剧完' && rt[4] === '打游戏', 'round-trip 后空行与修改保留（修改在点击行尾）', '实际=' + JSON.stringify([rt[2], rt[3], rt[4]]));
+  check(await evalJs(`document.getElementById('ideasEditor').contentEditable === 'false'`),
+        '失焦后回到只读渲染视图');
 
   // ── 3. 蜡笔涂抹打标记（新交互） ──
   console.log('\n── 3. 蜡笔选色涂抹 ──');
@@ -210,8 +243,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         '涂完仍保持涂抹态（可连续涂抹）');
   await paintLine(4);
 
-  check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[g] 看剧'`),
-        '涂抹第 4 行 → 正文写入 [g] 看剧');
+  check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[g] 看剧完'`),
+        '涂抹第 4 行 → 正文写入 [g] 看剧完');
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[4] === '[g] 打游戏'`),
         '涂抹第 5 行 → 正文写入 [g] 打游戏');
   check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-block.idea-green').length === 1`),
@@ -247,7 +280,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="r"]').click(); true`);
   await sleep(200);
   await paintLine(3);
-  check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[r] 看剧'`),
+  check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[3] === '[r] 看剧完'`),
         '给已有绿色行换红色成功（[g] → [r]，不残留旧标记）');
   check(await evalJs(`document.getElementById('ideasTextarea').value.split('\\n')[4] === '[g] 打游戏'`),
         '相邻的绿色行保持绿色不动');
@@ -391,8 +424,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(await evalJs(`document.getElementById('ideasTextarea').value.indexOf('[[我的笔记|这是三个月后的自己才需要的背景]]') !== -1`),
         '弹窗内容已插入正文');
   check(await evalJs(`document.getElementById('ideaLinkModal').classList.contains('show') === false`), '弹窗已关闭');
+  check(await evalJs(`document.getElementById('ideasEditor').contentEditable === 'true' &&
+                     document.querySelectorAll('#ideasEditor .idea-link').length === 0`),
+        '插入后停留在纯文本编辑会话（可继续输入，不失焦不渲染）');
+  // 失焦 → 渲染视图，插入的链接以蓝色链接显示
+  await evalJs(`document.getElementById('ideasEditor').dispatchEvent(new Event('blur', { bubbles: true })); true`);
+  await sleep(400);
   check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-link').length === 2`),
-        '插入后预览立即渲染出 2 个说明链接（不用切模式）');
+        '失焦渲染后出现 2 个说明链接（1 个原链接 + 1 个新插入）');
 
   // ── 5b. 双击链接编辑 ──
   console.log('\n── 5b. 双击链接重新编辑 ──');
@@ -425,8 +464,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check(keys.length >= 1, 'my_ideas 已写入 ' + keys.length + ' 个日期');
   const rec = store[keys[0]];
   check(rec && Object.keys(rec).sort().join(',') === 'text,ts', '记录字段仍只有 text,ts');
-  check(rec.text.indexOf('[r] 看剧') !== -1, '落盘内容含涂抹结果（红色）');
-  check(rec.text.indexOf('[y] 打游戏') !== -1, '落盘内容含换色结果（黄色）');
+  check(rec.text.indexOf('[r] 看剧完') !== -1, '落盘内容含涂抹结果（红色）');
+  check(rec.text.indexOf('[y]') !== -1, '落盘内容含换色结果（黄色）', '实际=' + JSON.stringify(rec.text));
   check(rec.text.indexOf('[[改后的标题|改后的说明]]') !== -1, '落盘内容含说明语法（双击编辑后的链接）');
 
   // 备份机制（saveWithBackup 会写 _backups）
@@ -439,12 +478,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await sleep(150);
   await evalJs(`document.querySelector('#ideasPenGroup .ideas-pen[data-color="g"]').click(); true`);
   await sleep(250);
-  // 换成 60 行（先清空编辑器，再写真源触发「自愈重排」，与真实输入路径一致）
+  // 换成 60 行（方案A：设真源 + 显式渲染视图）
   const many = [];
   for (let i = 0; i < 60; i++) many.push('第 ' + i + ' 行测试内容 abcdefghijklmnopqrstuvwxyz');
-  await evalJs(`document.getElementById('ideasEditor').textContent = '';
-                document.getElementById('ideasTextarea').value = ${JSON.stringify(many.join('\n'))};
-                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await evalJs(`document.getElementById('ideasTextarea').value = ${JSON.stringify(many.join('\n'))};
+                window.__ideasApi.render(); true`);
   await sleep(700);
   check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-line').length === 60`), '60 行内容已渲染');
   await evalJs(`var ed=document.getElementById('ideasEditor'); ed.scrollTop = ed.scrollHeight; true`);
@@ -468,9 +506,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     '[y] 黄行', '普通行带着 [[链接|说明内容]] 测试',
     '最后一行收尾', ''
   ].join('\n');
-  await evalJs(`document.getElementById('ideasEditor').textContent = '';
-                document.getElementById('ideasTextarea').value = ${JSON.stringify(rich)};
-                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await evalJs(`document.getElementById('ideasTextarea').value = ${JSON.stringify(rich)};
+                window.__ideasApi.render(); true`);
   await sleep(600);
   check(await evalJs(`document.querySelectorAll('#ideasEditor .idea-line').length === 7`), '富数据 7 行已渲染');
   await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
@@ -534,9 +571,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // ── 9. 拖拽涂抹多行：正文内容完整（不消失） ──
   console.log('\n── 9. 拖拽涂抹内容完整性 ──');
   const rich9 = ['红块第一行', '红块第二行', '', '黄行', '普通行带着 [[链接|说明内容]] 测试', '最后一行收尾', ''].join('\n');
-  await evalJs(`document.getElementById('ideasEditor').textContent = '';
-                document.getElementById('ideasTextarea').value = ${JSON.stringify(rich9)};
-                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await evalJs(`document.getElementById('ideasTextarea').value = ${JSON.stringify(rich9)};
+                window.__ideasApi.render(); true`);
   await sleep(600);
   await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);
   await sleep(150);
@@ -601,7 +637,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await evalJs(`document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
     await sleep(500);
     const tD = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
-    check(tD.length === 7, '提交后 input 同步仍保持 7 行', '实际=' + tD.length);
+    check(tD.length === 7, '渲染视图 input 事件被忽略（真源不被污染）', '实际=' + tD.length);
     check(tD[0].indexOf('红块第一行') !== -1 && tD[1].indexOf('红块第二行') !== -1,
           'input 同步后行0/1 正文仍在', '实际=' + JSON.stringify([tD[0], tD[1]]));
     check(tD[4].indexOf('[[链接|说明内容]]') !== -1, 'input 同步后链接语法仍在', '实际=' + JSON.stringify(tD[4]));
@@ -613,9 +649,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // ── 10. 点蜡笔即涂 + 涂抹态防文本选择（「两行消失」回归） ──
   console.log('\n── 10. 点蜡笔即涂 / 防文本选择误删 ──');
   const rich10 = ['第一行内容', '第二行内容', '', '第四行内容'].join('\n');
-  await evalJs(`document.getElementById('ideasEditor').textContent = '';
-                document.getElementById('ideasTextarea').value = ${JSON.stringify(rich10)};
-                document.getElementById('ideasEditor').dispatchEvent(new Event('input', { bubbles: true })); true`);
+  await evalJs(`document.getElementById('ideasTextarea').value = ${JSON.stringify(rich10)};
+                window.__ideasApi.render(); true`);
   await sleep(600);
   // 点蜡笔（不选色）→ 应立即进入涂抹态（默认红色），面板同步弹出
   await evalJs(`document.getElementById('ideasCrayonBtn').click(); true`);

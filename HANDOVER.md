@@ -116,6 +116,17 @@
 
 > ⚠️ 已知坑：标记模式下编辑框被隐藏、永远拿不到焦点，所以 `isIdeasEditing()` 必须把「正在涂抹」和「停留在标记模式」也算作编辑中，否则网页 8s 轮询会刷新思路、把正在涂的笔画清掉。切走标记模式时要先存档再重载，避免漏掉期间合并进来的其它端改动。
 
+### 5.3.2 电脑端思路编辑器两态架构（v12.5 方案A，**接手先读**）
+连续四轮涂抹 bug（手抖误涂 / 两行消失 / 点了没用）的根因是「contenteditable 单区域所见即所得」把色块、链接等结构元素塞进可编辑区，与浏览器原生编辑打架。方案A 彻底改为**模型/视图分离**：
+
+- **渲染视图（只读）**：`#ideasEditor` 初始 `contenteditable="false"`；色块 `.idea-block` / 小球 `.idea-ball` / 链接 `.idea-link` / 蜡笔涂抹**只在这一层**。点击非链接区域 → 进入编辑会话（光标定位点击行尾）；点击链接 → tooltip / 双击编辑
+- **编辑会话（纯文本）**：`contenteditable="true"`，逐行 `<div>`（空行 `<div><br></div>` 占位），DOM 只有浏览器原生文本、**无反解**；`input` 实时同步真源（**不重排、不打断输入流**）；**失焦 = 会话结束** → 写回真源 → 渲染
+- **状态**：`ideaView`（'edit'/'render'）与 `ideaMode`（'edit'/'pen'）并存。关键函数：`ideaEnterEditView(lineIdx)` / `ideaEnterRenderView()` / `ideaPlaceCaretAtLine()` / `ideaRestoreCaret(pos)` / `ideaEdPlainText()` / `ideasRenderPreview()`（幂等切换）
+- **真源同步铁律**：编辑会话读回用**逐行 `textContent` 拼接**（`ideaEdPlainText`）——**绝不用 `innerText`**（innerText 会合并空行 div，round-trip 丢行）。渲染视图兜底直接返回隐藏 textarea 真源，绝不用渲染 DOM 反向污染数据
+- **`ideaInsertLink`**：插入前确保在编辑会话，插入后**停留编辑会话**（不失焦不渲染），失焦后渲染出链接
+- **`window.__ideasApi`**：只读测试钩子（`render`/`enterEdit`/`view`/`mode`），E2E 注入用，正常运行不依赖
+- 数据格式**零变化**：`my_ideas` 仍是 `{日期:{text,ts}}`，`[r]/[y]/[g]` 与 `[[显示|说明]]` 语法不变，同步/合并规则不受影响
+
 ### 5.3 手机版 localStorage keys（mobile.html）
 | Key | 内容 |
 |---|---|
@@ -240,7 +251,7 @@ pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为�
 ```bash
 node tests/ideas_mark_test.js    # 语法解析/涂抹/擦除/相邻并块 纯逻辑（29 项）
 node tests/syntax_check.js       # 抽取两个 HTML 的内联脚本做 vm.Script 语法检查
-node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停/手感/单击不误涂/拖拽内容完整/防文本选择误删（93 项，出截图）
+node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停/手感/单击不误涂/拖拽内容完整/防文本选择误删/两态 round-trip（103 项，出截图）
 node tests/e2e_mobile.js         # 手机版点按上色/点链接看说明/摘要去语法（28 项，出截图）
 node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.py，走真实合并函数做往返断言（13 项）
 ```
@@ -285,6 +296,7 @@ node tests/sync_format_test.js   # 同步格式回归：沙箱导入 todo_tray.p
 | v12.3 蜡笔手感 | ①拖动中实时预览上色（`.pen-live-r/y/g`，松手才写真源）；②`mousemove` 挂 `document`，命中三级兜底（closest → elementFromPoint → y 几何），拖出编辑区再拖回不断涂、编辑区外不乱涂；③commit 重排保持 `scrollTop`；④拖出窗口 `mouseleave` 兜底提交。涂抹实机测试必须在 `tests/out/sandbox/` 隔离副本（端口 8899→19999）上进行 |
 | v12.3.1 单击不误涂 | 点击/拖拽位移阈值（8px）：单击只涂按下那一行，边界手抖不再连带下一行；`penJustCommitted` 挡掉重排后 click 的二次命中。手机端点按单行不受影响 |
 | v12.4 涂抹不丢内容 | 根因：点蜡笔只弹面板不进涂抹态 → 拖动变文本选择 → 误删两行。修复：点蜡笔即进涂抹态（用上次色）+ 涂抹态 `user-select:none` + mousedown/dragstart/keydown 三重 preventDefault，内容不可选中、不可被删。E2E 93 项含拖拽内容完整与防误删断言 |
+| v12.5 编辑器两态分离（方案A） | 用户连续四轮追涂抹 bug 后审查架构 + 外部调研，拍板方案A：思路编辑器改为「渲染视图（只读，contenteditable=false，色块/链接/涂抹只在此层）↔ 编辑会话（纯文本，逐行 div，无反解不重排，失焦渲染）」。真源同步用逐行 textContent 拼接（不用 innerText，防空行丢失）；ideaInsertLink 插入后停留编辑会话、失焦再渲染。数据格式零变化。E2E 93→103 项（新增 §2b 两态 round-trip 数据守恒） |
 
 ## 12. Git 与协作
 
