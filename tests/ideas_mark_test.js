@@ -76,6 +76,13 @@ eq(lines, ['第一行', '第二行'], '越界行号安全忽略');
 api.ideaSetLineColor(lines, 1, 'r');
 api.ideaSetLineColor(lines, 0, 'r');
 eq(lines, ['[r] 第一行', '[r] 第二行'], '两行都标记为红');
+let indented = ['  缩进\t正文 [[链接|<b>说明</b>]]'];
+api.ideaSetLineColor(indented, 0, 'g');
+api.ideaSetLineColor(indented, 0, 'r');
+api.ideaSetLineColor(indented, 0, 'e');
+eq(indented, ['  缩进\t正文 [[链接|<b>说明</b>]]'], '上色、换色、擦除后缩进与正文逐字守恒');
+api.ideaSetLineColor(indented, 0, 'invalid');
+eq(indented, ['  缩进\t正文 [[链接|<b>说明</b>]]'], '非法笔色不修改正文');
 
 console.log('\n── 3. 悬停说明解析 ──');
 eq(api.ideaRenderText('看 [[项目文档|https://x.com 里的说明]] 吧'),

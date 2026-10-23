@@ -80,6 +80,18 @@
 
 ## 5. 数据模型
 
+### 课表导入与精确周次（2026-10-23）
+
+`todo.html` 的 `parseScheduleTable` 统一处理 Excel 转换的二维数组和 JSON，返回 `{courses, timeSlots, notes}`。按星期表头映射列、按节次标签识别行；完整解析后才由 `applyImportedSchedule` 替换原课表。`parseCourseCell` 按完整“课程名[教师]”边界拆分，`parseScheduleWeeks` 展开逗号、顿号及范围周次。解析失败会报告行和星期，不允许只导入部分安排。
+
+预置数据已更新到用户提供的 2026-10-16 导出文件。用户另行确认第 8 周周六“嵌入式系统原理”为第 5–8 节连堂，原 XLS 只在第五六节格写课程且没有课程合并范围；`applyConfirmedContinuation` 仅对完整匹配这份已知课表的解析结果补入第七八节，并追加明确备注，不从其他空白格推断连堂。文件原始 34 条安排加此补充为 35 条。
+
+`upgradeKnownSchedule` 在加载时按完整课程记录签名识别已核实数据（旧预置、实际旧解析器错误缓存、上轮已导入的 34 条记录），只对完全匹配的数据更新课程，保留 `semesterStart`、作息及已有备注；`saveWithBackup` 自动保留原值。签名不匹配的自定义课表不自动替换。不要只测试新文件重新导入：还必须验证旧缓存与 34 条缓存刷新后本周末恢复，以及周六第七八节连堂后半段显示。
+
+课程新增 `weeks: [1,2,3,4,6,7,8,9]` 保存精确开课周，保留 `startWeek/endWeek` 兼容旧数据。显示、日程预填、编辑和删除必须调用 `scheduleCourseHasWeek`，不能仅比较起止周；`scheduleWeeksLabel` 负责还原 `1-4,6-9`。编辑同格安排时保留未显示的其他周课程。课表可选 `notes` 保存表尾备注；没有时刻的源表沿用当前作息，导入不推断或修改 `semesterStart`。
+
+回归：`node tests/schedule_import_test.js`（去除学生身份信息的新表样本、旧 JSON 与异常）；`node tests/e2e_schedule.js`（隔离页面 JSON 导入）；传实际 XLS 路径可测试二进制文件导入，需将页面相同版本的 SheetJS 库缓存为 `tests/out/schedule/xlsx.full.min.js`。浏览器测试断开 8899 同步并使用独立用户目录，截图位于 `tests/out/sandbox-schedule/`。
+
 ### 5.1 任务对象（`my_todo_list_v2` 数组元素）
 ```json
 { "id": "mvb5...", "text": "任务名", "done": false, "progress": 0,
@@ -111,10 +123,12 @@
 | `[[显示文字\|详细说明]]` | 悬停说明（省略 `\|说明` 则说明=显示文字） | `/\[\[([^\[\]|]+)(?:\|([^\[\]]*))?\]\]/g` |
 
 渲染规则：**相邻同色的行合并成一整块**（`idea-block`），颜色小球只画在块首；标记语法本身不出现在渲染结果里。三端各自的实现位置：
-- 电脑 `todo.html`：`ideaParseLine` / `ideaSetLineColor` / `ideaRenderText` / `ideasRenderPreview`，模式切换 `ideasApplyMode`，涂抹 `ideaPenHit` / `ideaPenCommit`
-- 手机 `docs/mobile.html`：`mIdeaParseLine` / `mIdeaSetLineColor` / `mIdeaRenderText` / `mIdeasRenderPreview`，点按上色 `mIdeaPaintLine`
+- 电脑 `todo.html`：解析 `ideaParseLine` / `ideaSetLineColor`；渲染 `ideaBuildEditableHtml` / `ideasRenderPreview`；模式切换 `ideasEnterPen` / `ideasExitPen`；笔画 `ideaPenStart` / `ideaPenMove` / `ideaPenFinish` / `ideaPenCancel`。
+- 手机 `docs/mobile.html`：解析 `mIdeaParseLine` / `mIdeaSetLineColor`；渲染 `mIdeaBuildHtml`；编辑会话 `mIdeaEnterEdit` / `mIdeaEndEdit`；点按上色 `mIdeaPaintLine`。
 
-> ⚠️ 已知坑：标记模式下编辑框被隐藏、永远拿不到焦点，所以 `isIdeasEditing()` 必须把「正在涂抹」和「停留在标记模式」也算作编辑中，否则网页 8s 轮询会刷新思路、把正在涂的笔画清掉。切走标记模式时要先存档再重载，避免漏掉期间合并进来的其它端改动。
+> `isIdeasEditing()` 同时识别纯文本编辑、当前笔画和涂抹模式；这些状态下电脑暂缓思路合并与刷新，下次轮询再采纳远端更新。不要仅检查隐藏 textarea 的焦点。
+
+2026-10-23 蜡笔重构：电脑每笔用 `penStroke` 保存日期、原文、笔色、触及行和指针 ID；Pointer Events 驱动开始/预览/提交/取消。预览仅更新 CSS，松手时校验快照后改正文；Esc/pointercancel/切页取消，窗口失焦或离开时提交。快速拖动补齐连续行，高 DPI 行边界按几何范围命中。同色行实际嵌套在同一个 `.idea-block` 内，小球和色条可操作整个块。手机保持点按上色，同时采用纯文本编辑/只读渲染两态；保存函数不再重绘编辑 DOM。改色只移除一个语法分隔空格，保留正文缩进。回归入口 `tests/crayon_regression.js`，隔离副本会去除外部脚本并替换同步地址；CDP 无响应会超时报错，不能把无输出退出视为测试通过。
 
 ### 5.3.2 电脑端思路编辑器两态架构（v12.5 方案A，**接手先读**）
 连续四轮涂抹 bug（手抖误涂 / 两行消失 / 点了没用）的根因是「contenteditable 单区域所见即所得」把色块、链接等结构元素塞进可编辑区，与浏览器原生编辑打架。方案A 彻底改为**模型/视图分离**：
@@ -122,7 +136,7 @@
 - **渲染视图（只读）**：`#ideasEditor` 初始 `contenteditable="false"`；色块 `.idea-block` / 小球 `.idea-ball` / 链接 `.idea-link` / 蜡笔涂抹**只在这一层**。点击非链接区域 → 进入编辑会话（光标定位点击行尾）；点击链接 → tooltip / 双击编辑
 - **编辑会话（纯文本）**：`contenteditable="true"`，逐行 `<div>`（空行 `<div><br></div>` 占位），DOM 只有浏览器原生文本、**无反解**；`input` 实时同步真源（**不重排、不打断输入流**）；**失焦 = 会话结束** → 写回真源 → 渲染
 - **状态**：`ideaView`（'edit'/'render'）与 `ideaMode`（'edit'/'pen'）并存。关键函数：`ideaEnterEditView(lineIdx)` / `ideaEnterRenderView()` / `ideaPlaceCaretAtLine()` / `ideaRestoreCaret(pos)` / `ideaEdPlainText()` / `ideasRenderPreview()`（幂等切换）
-- **真源同步铁律**：编辑会话读回用**逐行 `textContent` 拼接**（`ideaEdPlainText`）——**绝不用 `innerText`**（innerText 会合并空行 div，round-trip 丢行）。渲染视图兜底直接返回隐藏 textarea 真源，绝不用渲染 DOM 反向污染数据
+- **真源同步铁律**：编辑会话通过 `ideaReadPlainDom` / `mIdeaReadPlainDom` 遍历文本、div/p 和 br，保留浏览器创建的根文本与空行。不要用 `innerText` 合并空行，也不要反解渲染 DOM；渲染视图始终返回隐藏 textarea 真源。
 - **`ideaInsertLink`**：插入前确保在编辑会话，插入后**停留编辑会话**（不失焦不渲染），失焦后渲染出链接
 - **`window.__ideasApi`**：只读测试钩子（`render`/`enterEdit`/`view`/`mode`），E2E 注入用，正常运行不依赖
 - 数据格式**零变化**：`my_ideas` 仍是 `{日期:{text,ts}}`，`[r]/[y]/[g]` 与 `[[显示|说明]]` 语法不变，同步/合并规则不受影响
@@ -249,7 +263,7 @@ pyinstaller --noconfirm --onefile --windowed --icon "可爱的阿米娅-人为�
 
 ### 9.1 v11 新增的自动化测试（`tests/`，用捆绑 Node 跑）
 ```bash
-node tests/ideas_mark_test.js    # 语法解析/涂抹/擦除/相邻并块 纯逻辑（29 项）
+node tests/ideas_mark_test.js    # 语法解析/涂抹/擦除/相邻并块 纯逻辑（31 项）
 node tests/syntax_check.js       # 抽取两个 HTML 的内联脚本做 vm.Script 语法检查
 node tests/e2e_browser.js        # 电脑网页 Edge headless + CDP 真实鼠标涂抹/换色/悬停/手感/单击不误涂/拖拽内容完整/防文本选择误删/两态 round-trip（103 项，出截图）
 node tests/e2e_mobile.js         # 手机版点按上色/点链接看说明/摘要去语法（28 项，出截图）

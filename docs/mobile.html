@@ -100,6 +100,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 .ideas-pen.active { box-shadow: 0 0 0 2px #333; }
 .ideas-toolbtn { border: 1px solid #dcdfe6; background: #fff; color: #666; font-size: 12px; padding: 6px 10px; border-radius: 8px; }
 .ideas-toolbtn:active { background: #eef1ff; }
+.ideas-toolbtn.active { background: #5c6bc0; color: #fff; border-color: #5c6bc0; }
 .ideas-hint { font-size: 11px; color: #aaa; margin-left: auto; }
 .ideas-editor-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ideas-editor {
@@ -109,7 +110,8 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   min-height: 200px;
 }
 .ideas-editor:empty::before { content: attr(data-placeholder); color: #bbb; pointer-events: none; }
-.ideas-editor.pen-mode { background: #fcfcff; cursor: crosshair; }
+.ideas-editor.pen-mode { background: #fcfcff; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+.ideas-editor.pen-mode, .ideas-editor.pen-mode * { cursor: crosshair; }
 .ideas-editor .idea-line { min-height: 1.7em; border-radius: 4px; }
 .ideas-editor .idea-line.pen-hit { box-shadow: inset 0 0 0 2px #5c6bc0; }
 .idea-block { position: relative; border-radius: 6px; padding: 2px 2px; }
@@ -218,7 +220,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
       </div>
       <div class="ideas-toolbar">
         <div class="ideas-seg" id="mIdeasPenToggleWrap">
-          <button class="ideas-toolbtn ideas-crayon" id="mIdeasCrayonBtn">🖍 蜡笔</button>
+          <button class="ideas-toolbtn ideas-crayon" id="mIdeasCrayonBtn" aria-pressed="false" title="点击进入上色模式">🖍 蜡笔</button>
         </div>
         <div class="ideas-seg" id="mIdeasPenGroup" style="display:none;">
           <button class="ideas-pen" data-color="r" title="红色"></button>
@@ -231,7 +233,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
       </div>
       <div class="ideas-editor-wrap">
         <textarea id="ideasTextarea" style="display:none;" aria-hidden="true"></textarea>
-        <div class="ideas-editor" id="mIdeasEditor" contenteditable="true"
+        <div class="ideas-editor" id="mIdeasEditor" contenteditable="false"
              data-placeholder="随手记录思路、灵感、复盘... 输入 [[文字|说明]] 就地变成链接，点按看说明；🖍 蜡笔涂抹打标记"></div>
       </div>
     </div>
@@ -1022,6 +1024,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
         render();
         if (document.getElementById('ideasDrawer').classList.contains('show')) {
           ideasRenderList();
+          if (MIdeaView !== 'edit' && MIdeaMode !== 'pen') ideasLoadPage(ideasCurrent);
         }
         // 以远端 data 为底，只覆盖手机负责的三个 key
         var data = {};
@@ -1257,6 +1260,8 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   }
 
   function ideasLoadPage(date) {
+    clearTimeout(ideasDebounce);
+    MIdeaView = 'render';
     ideasCurrent = date;
     var store = loadIdeasStore();
     var rec = store[date];
@@ -1272,7 +1277,11 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   function ideasSavePage() {
     // 始终保存到当前选中的日期，编辑旧记录不会新建日期
     var store = loadIdeasStore();
-    var val = document.getElementById('ideasTextarea').value;
+    var ta = document.getElementById('ideasTextarea');
+    if (MIdeaView === 'edit') ta.value = mIdeaEdPlainText();
+    var val = ta.value;
+    if ((store[ideasCurrent] && store[ideasCurrent].text === val) ||
+        (!store[ideasCurrent] && val.trim() === '')) return;
     if (!val.trim()) {
       delete store[ideasCurrent];
     } else {
@@ -1285,7 +1294,6 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     saveCache(state);
     markLocalDirty();
     ideasRenderList();
-    mIdeaRenderIntoEditor();
   }
 
   function openIdeas() {
@@ -1303,6 +1311,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   }
 
   function closeIdeas() {
+    mIdeaEndEdit();
     ideasSavePage();
     document.getElementById('ideasDrawer').classList.remove('show');
     document.getElementById('ideasMask').classList.remove('show');
@@ -1318,6 +1327,7 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   var M_IDEA_MODE_KEY = 'mobile_ideas_mode';   // 'edit'（常态） | 'pen'（涂抹中）
   var M_IDEA_PEN_KEY = 'mobile_ideas_pen_color';
   var MIdeaMode = 'edit';
+  var MIdeaView = 'render';
   var MIdeaPen = 'r';
 
   var M_MARK_RE = /^[ \t]*\[([rygRYG])\][ \t]*/;
@@ -1332,7 +1342,8 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 
   function mIdeaSetLineColor(lines, idx, color) {
     if (idx < 0 || idx >= lines.length) return;
-    var body = mIdeaParseLine(lines[idx]).text;
+    if (color !== '' && color !== 'e' && !/^[ryg]$/.test(color)) return;
+    var body = M_MARK_RE.test(lines[idx]) ? lines[idx].replace(/^[ \t]*\[[rygRYG]\][ \t]?/, '') : lines[idx];
     if (color === 'e' || color === '') lines[idx] = body;
     else lines[idx] = '[' + color + '] ' + body;
   }
@@ -1341,41 +1352,28 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
   function mIdeaRenderIntoEditor() {
     var ed = document.getElementById('mIdeasEditor');
     var ta = document.getElementById('ideasTextarea');
-    if (!ed || !ta) return;
+    if (!ed || !ta || MIdeaView === 'edit') return;
+    ed.contentEditable = 'false';
+    var st = ed.scrollTop;
     ed.innerHTML = mIdeaBuildHtml(ta.value || '');
-    // 重建行索引
-    var lines = ed.querySelectorAll('.idea-line');
-    for (var i = 0; i < lines.length; i++) lines[i].setAttribute('data-line', i);
+    ed.scrollTop = st;
   }
   function mIdeaBuildHtml(raw) {
     var lines = String(raw || '').split('\n');
-    var html = '';
-    var openBlock = null;
-    for (var i = 0; i < lines.length; i++) {
-      var p = mIdeaParseLine(lines[i]);
-      var bodyHtml = mIdeaRenderTextEditable(p.text);
-      // 行首标记原文（[r]/[y]/[g]）存到 data-prefix，供还原时恢复
-      var prefix = p.color ? ('[' + p.color + '] ') : '';
-      var prefixAttr = prefix ? (' data-prefix="' + escapeHtml(prefix) + '"') : '';
-      if (p.color) {
-        if (openBlock && openBlock === p.color) {
-          html += '<div class="idea-line" data-block="' + p.color + '"' + prefixAttr + '>' + bodyHtml + '</div>';
-        } else {
-          html += '<div class="idea-block idea-' + M_COLOR_CLASS[p.color] +
-                  '" data-block="' + p.color + '">' +
-                  '<span class="idea-ball"></span>' +
-                  '<div class="idea-line" data-block="' + p.color + '"' + prefixAttr + '>' + bodyHtml + '</div>' +
-                  '</div>';
-          openBlock = p.color;
-        }
-      } else {
-        openBlock = null;
-        // 空行用 <br> 填充，保证 contenteditable 里可见且可聚焦
-        html += '<div class="idea-line"' + prefixAttr + '>' + (bodyHtml === '' ? '<br>' : bodyHtml) + '</div>';
+    var html = '', openColor = '';
+    lines.forEach(function(line, idx) {
+      var p = mIdeaParseLine(line);
+      if (openColor && openColor !== p.color) { html += '</div>'; openColor = ''; }
+      if (p.color && !openColor) {
+        html += '<div class="idea-block idea-' + M_COLOR_CLASS[p.color] + '" data-block="' + p.color + '">' +
+                '<span class="idea-ball"></span>';
+        openColor = p.color;
       }
-    }
-    return html;
+      html += '<div class="idea-line" data-line="' + idx + '">' + (mIdeaRenderTextEditable(p.text) || '<br>') + '</div>';
+    });
+    return html + (openColor ? '</div>' : '');
   }
+
   // 渲染一行（可编辑版）：[[..]] → 链接 span（data-raw 存原文）
   function mIdeaRenderTextEditable(text) {
     var out = '', last = 0, m;
@@ -1393,31 +1391,52 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
     out += escapeHtml(text.slice(last));
     return out;
   }
-  // contenteditable 纯文本还原成语法文本（按行 DOM 遍历，行间加 \n，不依赖换行正则）
+  // 输入只发生在纯文本会话，渲染 DOM 永远不反解为正文。
   function mIdeaEdPlainText() {
     var ed = document.getElementById('mIdeasEditor');
-    if (!ed) return '';
-    var out = [];
-    var lineEls = ed.querySelectorAll('.idea-line');
-    for (var i = 0; i < lineEls.length; i++) {
-      out.push(mIdeaLineText(lineEls[i]));
-    }
-    // 兜底：如果编辑器里没有 .idea-line（用户刚输入还没重排），按 innerText 取
-    if (out.length === 0) return (ed.innerText || '').replace(/^\n+|\n+$/g, '');
-    return out.join('\n');
+    return MIdeaView === 'edit' ? mIdeaReadPlainDom(ed) : document.getElementById('ideasTextarea').value;
   }
-  // 取单行文本：链接 span 用 data-raw 还原语法，行首标记用 data-prefix 恢复
-  function mIdeaLineText(lineEl) {
-    var tmp = document.createElement('div');
-    tmp.appendChild(lineEl.cloneNode(true));
-    var links = tmp.querySelectorAll('.idea-link');
-    for (var i = links.length - 1; i >= 0; i--) {
-      var raw = links[i].getAttribute('data-raw');
-      var frag = document.createRange().createContextualFragment(raw);
-      links[i].parentNode.replaceChild(frag, links[i]);
+  function mIdeaReadPlainDom(root) {
+    function read(parent) {
+      var out = '', previousBlock = false;
+      for (var node = parent.firstChild; node; node = node.nextSibling) {
+        var block = node.nodeType === 1 && /^(DIV|P)$/.test(node.tagName);
+        if (node !== parent.firstChild && (block || previousBlock)) out += '\n';
+        if (node.nodeType === 3) out += node.nodeValue;
+        else if (node.nodeType === 1) {
+          if (node.tagName === 'BR') {
+            if (parent.childNodes.length !== 1) out += '\n';
+          } else out += read(node);
+        }
+        previousBlock = block;
+      }
+      return out;
     }
-    var prefix = lineEl.getAttribute && lineEl.getAttribute('data-prefix');
-    return (prefix || '') + (tmp.textContent || '');
+    return read(root);
+  }
+
+  function mIdeaEnterEdit(idx) {
+    if (MIdeaView === 'edit' || MIdeaMode === 'pen') return;
+    var ed = document.getElementById('mIdeasEditor');
+    MIdeaView = 'edit';
+    ed.contentEditable = 'true';
+    var lines = document.getElementById('ideasTextarea').value.split('\n');
+    ed.innerHTML = lines.map(function(l) { return '<div>' + (l ? escapeHtml(l) : '<br>') + '</div>'; }).join('');
+    ed.focus();
+    var target = ed.children[idx] || ed.lastElementChild || ed;
+    var range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  function mIdeaEndEdit() {
+    if (MIdeaView !== 'edit') return;
+    document.getElementById('ideasTextarea').value = mIdeaEdPlainText();
+    MIdeaView = 'render';
+    mIdeaRenderIntoEditor();
+    ideasSavePage();
   }
   function mIdeaRenderPreview() {
     var ta = document.getElementById('ideasTextarea');
@@ -1435,6 +1454,13 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
 
   // 蜡笔选色进入涂抹态（点按上色），再点蜡笔退出
   function mIdeasApplyMode() {
+    mIdeaEndEdit();
+    var btn = document.getElementById('mIdeasCrayonBtn');
+    var active = MIdeaMode === 'pen';
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+    btn.textContent = active ? '🖍 上色中' : '🖍 蜡笔';
+    btn.title = active ? '上色模式已开启，点击退出' : '点击进入上色模式';
     var ed = document.getElementById('mIdeasEditor');
     if (ed) ed.classList.toggle('pen-mode', MIdeaMode === 'pen');
     var group = document.getElementById('mIdeasPenGroup');
@@ -1490,7 +1516,9 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
       mIdeasApplyMode();
       return;
     }
-    pop.style.display = pop.style.display === 'none' ? '' : 'none';
+    MIdeaMode = 'pen';
+    mIdeasApplyMode();
+    pop.style.display = '';
   });
   document.getElementById('mIdeasPenGroup').addEventListener('click', function(e) {
     var btn = e.target.closest('.ideas-pen');
@@ -1511,38 +1539,44 @@ footer .btn-secondary { background: #e8eaf6; color: #3949ab; }
       if (lineEl) mIdeaPaintLine(parseInt(lineEl.dataset.line, 10));
       return;
     }
+    if (!link && MIdeaView === 'render') {
+      var line = e.target.closest('.idea-line');
+      mIdeaEnterEdit(line ? Number(line.dataset.line) : -1);
+    }
     if (link) {
       if (document.getElementById('mIdeaTip').classList.contains('show')) hideMIdeaTip();
       else showMIdeaTip(link);
     }
   });
   document.getElementById('mIdeasEditor').addEventListener('scroll', hideMIdeaTip);
-  // contenteditable 输入：同步真源，语法闭合后重排
-  document.getElementById('mIdeasEditor').addEventListener('input', function() {
-    var ta = document.getElementById('ideasTextarea');
-    if (!ta) return;
-    var plain = mIdeaEdPlainText();
-    // 自愈：编辑器为空但真源有内容 → 用真源重排，别清空真源
-    if (plain.trim() === '' && ta.value && ta.value.trim() !== '') {
-      mIdeaRenderIntoEditor();
-      return;
-    }
-    ta.value = plain;
-    if (/\]\]/.test(ta.value || '') || /(^|\n)[ \t]*\[[rygRYG]\][ \t]?/.test(ta.value || '')) {
-      mIdeaRenderIntoEditor();
-    }
+  // 保存不重排输入 DOM；只有失焦或进入蜡笔模式时结束编辑会话。
+  var mEditor = document.getElementById('mIdeasEditor');
+  mEditor.addEventListener('input', function() {
+    if (MIdeaView !== 'edit' || MIdeaMode === 'pen') return;
+    document.getElementById('ideasTextarea').value = mIdeaEdPlainText();
     clearTimeout(ideasDebounce);
     ideasDebounce = setTimeout(ideasSavePage, 400);
   });
-  document.getElementById('mIdeasEditor').addEventListener('blur', function() {
-    var ta = document.getElementById('ideasTextarea');
-    if (ta) ta.value = mIdeaEdPlainText();
-    mIdeaRenderIntoEditor();
-    ideasSavePage();
+  mEditor.addEventListener('blur', mIdeaEndEdit);
+  mEditor.addEventListener('mousedown', function(e) {
+    if (MIdeaMode === 'pen') e.preventDefault();
+  });
+  mEditor.addEventListener('dragstart', function(e) {
+    if (MIdeaMode === 'pen') e.preventDefault();
+  });
+  mEditor.addEventListener('keydown', function(e) {
+    if (MIdeaMode === 'pen') e.preventDefault();
+  });
+  mEditor.addEventListener('paste', function(e) {
+    e.preventDefault();
+    if (MIdeaView === 'edit' && MIdeaMode !== 'pen') {
+      document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+    }
   });
 
   // 🔗 说明：用 prompt 收集（手机端不做复杂弹窗）
   function mIdeasInsertLink() {
+    mIdeaEndEdit();
     if (MIdeaMode !== 'edit') { MIdeaMode = 'edit'; mIdeasApplyMode(); }
     var ta = document.getElementById('ideasTextarea');
     var val = ta.value || '';

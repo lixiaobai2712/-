@@ -1311,10 +1311,14 @@ body {
 .ideas-editor:empty::before {
   content: attr(data-placeholder); color: #bbb; pointer-events: none;
 }
-.ideas-editor.pen-mode { cursor: crosshair; background: #fcfcff; user-select: none; -webkit-user-select: none; }
+.ideas-editor.pen-mode { cursor: crosshair; background: #fcfcff; user-select: none; -webkit-user-select: none; touch-action: none; }
+.ideas-editor.pen-preview .idea-block[data-block] { background: none; box-shadow: none; }
+.ideas-editor.pen-preview .idea-ball { visibility: hidden; }
+.ideas-editor.pen-preview .idea-line.pen-live-e { background: #fff; box-shadow: none; }
 /* 方案A：渲染视图是只读投影层，点击可进入编辑，鼠标给「可点」提示 */
 .ideas-editor[contenteditable="false"] { cursor: text; }
 .ideas-editor[contenteditable="false"]:not(.pen-mode):hover { background: #fbfbff; }
+.ideas-editor.pen-mode, .ideas-editor.pen-mode * { cursor: crosshair; }
 .ideas-editor .idea-line { min-height: 1.7em; border-radius: 4px; }
 .ideas-editor .idea-line.pen-hit { box-shadow: inset 0 0 0 2px #5c6bc0; }
 /* 涂抹实时预览：笔到色到（松手才真正落盘），像荧光笔划过 */
@@ -1538,6 +1542,7 @@ body {
   </div>
   <div class="schedule-table-wrap">
     <table class="schedule-table" id="scheduleTable"></table>
+    <div id="scheduleNotes" style="display:none;margin-top:16px;padding:12px;background:#f8f9ff;border-radius:8px;white-space:pre-wrap;line-height:1.7;color:#555;"></div>
   </div>
 </div>
 
@@ -1582,7 +1587,7 @@ body {
       </div>
       <div class="ideas-toolbar">
         <div class="ideas-mode-group" id="ideasPenToggleWrap">
-          <button class="ideas-tool-btn ideas-crayon" id="ideasCrayonBtn" title="蜡笔：点击选颜色，然后涂抹打标记">🖍 蜡笔</button>
+          <button class="ideas-tool-btn ideas-crayon" id="ideasCrayonBtn" aria-pressed="false" title="点击进入上色模式">🖍 蜡笔</button>
           <div class="ideas-pen-pop" id="ideasPenGroup">
             <button class="ideas-pen" data-color="r" title="红色 · 又急又重要"></button>
             <button class="ideas-pen" data-color="y" title="黄色 · 重要但不急"></button>
@@ -3252,7 +3257,10 @@ body {
   }
 
   function ideasLoadPage(date) {
+    ideaPenCancel();
+    clearTimeout(ideasTimer);
     // 载入指定日期的内容（只更新编辑区与右侧列表，不跳页）
+    ideaView = 'render';
     ideasCurrentDate = date;
     var store = loadIdeasStore();
     var rec = store[date];
@@ -3273,6 +3281,8 @@ body {
     var ta = document.getElementById('ideasTextarea');
     // 真源始终是隐藏 textarea（由 contenteditable input 事件同步进来）
     var val = ta.value;
+    if ((store[ideasCurrentDate] && store[ideasCurrentDate].text === val) ||
+        (!store[ideasCurrentDate] && val.trim() === '')) return;
     if (val.trim() === '') {
       delete store[ideasCurrentDate];
     } else {
@@ -3315,6 +3325,8 @@ body {
   }
 
   function toggleIdeas() {
+    if (penStroke) ideaPenFinish();
+    if (ideaView === 'edit') { ideaEnterRenderView(); saveIdeas(); }
     var drawer = document.getElementById('ideasDrawer');
     var toggle = document.getElementById('ideasToggle');
     var open = drawer.classList.toggle('open');
@@ -3366,15 +3378,11 @@ body {
   var ideaMode = 'edit';
   var ideaView = 'render';      // 方案A：'edit'=纯文本编辑会话（无反解）；'render'=只读渲染视图（色块/链接/涂抹）
   var ideaPenColor = 'r';
-  var penPainting = false;
-  var penTouched = {};        // {行号: true} 本次涂抹碰到的行
   var penLineEls = {};        // {行号: 元素} 涂抹时实时高亮
-  // 点击/拖拽区分：按下后位移不超过阈值视为「单击」，只涂按下那一行；
-  // 超过阈值才进入拖拽轨迹涂抹。修复「点击一下、边界抖动把下一行也涂上」
-  var penPress = null;        // {x, y} 按下点（屏幕坐标）
-  var penDragging = false;    // 本次是否已超过点击阈值进入拖拽
+  // 一笔只操作按下时的日期、原文和笔色；取消或切页后不允许迟到的事件落盘。
+  var penStroke = null;      // {date, raw, color, touched, last, x, y, dragging, pointerId}
   var PEN_CLICK_THRESHOLD = 8; // px：小于等于此位移算单击
-  var penJustCommitted = false; // mouseup 刚提交过涂抹（click 跟随触发时不再二次处理）
+  var penJustCommitted = false;
 
   // 行首标记：兼容大小写，标记后可跟 0~N 个空格
   var IDEA_MARK_RE = /^[ \t]*\[([rygRYG])\][ \t]*/;
@@ -3392,7 +3400,11 @@ body {
   // 给某一行加/换/去标记（color 传 'e' 即清除）
   function ideaSetLineColor(lines, idx, color) {
     if (idx < 0 || idx >= lines.length) return;
-    var body = ideaParseLine(lines[idx]).text;
+    if (color !== '' && color !== 'e' && !/^[ryg]$/.test(color)) return;
+    var match = IDEA_MARK_RE.exec(lines[idx]);
+    // 替换标记时只移除语法分隔符，正文的缩进和空格保持原样。
+    var prefix = /^[ \t]*\[[rygRYG]\][ \t]?/;
+    var body = match ? lines[idx].replace(prefix, '') : lines[idx];
     if (color === 'e' || color === '') lines[idx] = body;
     else lines[idx] = '[' + color + '] ' + body;
   }
@@ -3449,15 +3461,30 @@ body {
     var ed = ideaEditorEl();
     if (!ed) return '';
     if (ideaView === 'edit') {
-      var out = [];
-      var blocks = ed.children;
-      for (var i = 0; i < blocks.length; i++) {
-        out.push((blocks[i].textContent || '').replace(/\u00a0/g, ' '));
-      }
-      return out.join('\n');
+      return ideaReadPlainDom(ed);
     }
     var ta = document.getElementById('ideasTextarea');
     return (ta && ta.value) || '';
+  }
+
+  // 浏览器可生成根文本、div/p、嵌套换行和 br；逐节点读取，保留空行。
+  function ideaReadPlainDom(root) {
+    function read(parent) {
+      var out = '', previousBlock = false;
+      for (var node = parent.firstChild; node; node = node.nextSibling) {
+        var block = node.nodeType === 1 && /^(DIV|P)$/.test(node.tagName);
+        if (node !== parent.firstChild && (block || previousBlock)) out += '\n';
+        if (node.nodeType === 3) out += node.nodeValue;
+        else if (node.nodeType === 1) {
+          if (node.tagName === 'BR') {
+            if (parent.childNodes.length !== 1) out += '\n';
+          } else out += read(node);
+        }
+        previousBlock = block;
+      }
+      return out;
+    }
+    return read(root);
   }
 
   // ── 方案A：编辑会话（纯文本，浏览器原生编辑） ↔ 渲染视图（只读，色块/链接/涂抹） ──
@@ -3489,6 +3516,7 @@ body {
     if (!ed) return;
     var ta = document.getElementById('ideasTextarea');
     if (ideaView === 'edit' && ta) ta.value = ideaEdPlainText();
+    ideaPenCancel();
     ideaView = 'render';
     ed.contentEditable = 'false';
     try { window.getSelection().removeAllRanges(); } catch(e) {}
@@ -3545,41 +3573,24 @@ body {
     penLineEls = {};
     var lines = ed.querySelectorAll('.idea-line');
     for (var i = 0; i < lines.length; i++) {
-      lines[i].setAttribute('data-line', i);
       penLineEls[i] = lines[i];
     }
   }
 
   function ideaBuildEditableHtml(raw) {
     var lines = String(raw || '').split('\n');
-    var html = '';
-    var openBlock = null;
-    for (var i = 0; i < lines.length; i++) {
-      var p = ideaParseLine(lines[i]);
-      var bodyHtml = ideaRenderTextEditable(p.text);
-      // 行首标记原文（[r]/[y]/[g]）存到 data-prefix，供还原时恢复
-      var prefix = p.color ? ('[' + p.color + '] ') : '';
-      var prefixAttr = prefix ? (' data-prefix="' + escapeHtml(prefix) + '"') : '';
-      if (p.color) {
-        if (openBlock && openBlock === p.color) {
-          // 同色续块
-          html += '<div class="idea-line" data-block="' + p.color + '"' + prefixAttr + '>' + bodyHtml + '</div>';
-        } else {
-          // 新块
-          html += '<div class="idea-block idea-' + IDEA_COLOR_CLASS[p.color] +
-                  '" data-block="' + p.color + '">' +
-                  '<span class="idea-ball"></span>' +
-                  '<div class="idea-line" data-block="' + p.color + '"' + prefixAttr + '>' + bodyHtml + '</div>' +
-                  '</div>';
-          openBlock = p.color;
-        }
-      } else {
-        openBlock = null;
-        // 空行用 <br> 填充，保证 contenteditable 里可见且可聚焦
-        html += '<div class="idea-line"' + prefixAttr + '>' + (bodyHtml === '' ? '<br>' : bodyHtml) + '</div>';
+    var html = '', openColor = '';
+    lines.forEach(function(line, idx) {
+      var p = ideaParseLine(line);
+      if (openColor && openColor !== p.color) { html += '</div>'; openColor = ''; }
+      if (p.color && !openColor) {
+        html += '<div class="idea-block idea-' + IDEA_COLOR_CLASS[p.color] + '" data-block="' + p.color + '">' +
+                '<span class="idea-ball"></span>';
+        openColor = p.color;
       }
-    }
-    return html;
+      html += '<div class="idea-line" data-line="' + idx + '">' + (ideaRenderTextEditable(p.text) || '<br>') + '</div>';
+    });
+    return html + (openColor ? '</div>' : '');
   }
 
   // 渲染一行（可编辑版）：[[..]] → 链接 span（data-raw 存原文语法），其余转义
@@ -3602,6 +3613,7 @@ body {
 
   // 进入只读渲染视图（色块/链接/涂抹都只在这一层发生）并重建涂抹用的行索引
   function ideasRenderPreview() {
+    ideaPenCancel();
     var ed = ideaEditorEl();
     var ta = document.getElementById('ideasTextarea');
     if (!ta) return;
@@ -3622,7 +3634,7 @@ body {
     if (hint) {
       if (ideaMode === 'pen') {
         if (!ideaPenColor) hint.textContent = '选一支笔再涂抹';
-        else if (penPainting) hint.textContent = '松手生效';
+        else if (penStroke) hint.textContent = '松手生效';
         else if (ideaPenColor === 'e') hint.textContent = '橡皮擦除 · 再点蜡笔退出';
         else hint.textContent = '涂' + (IDEA_PEN_TIP[ideaPenColor] || '') + '标记 · 再点蜡笔退出';
       } else {
@@ -3640,8 +3652,17 @@ body {
   };
 
   // ── 蜡笔：选色后保持涂抹态（可连续涂多行），再点蜡笔按钮退出 ──
+  function ideasUpdatePenButton() {
+    var btn = document.getElementById('ideasCrayonBtn');
+    var active = ideaMode === 'pen';
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+    btn.textContent = active ? '🖍 上色中' : '🖍 蜡笔';
+    btn.title = active ? '上色模式已开启，点击退出' : '点击进入上色模式';
+  }
   function ideasEnterPen() {
     ideaMode = 'pen';
+    ideasUpdatePenButton();
     var ed = ideaEditorEl();
     if (ed) ed.classList.add('pen-mode');
     try { localStorage.setItem(IDEA_MODE_KEY, 'pen'); } catch(e) {}
@@ -3649,8 +3670,9 @@ body {
     ideasRenderPreview();   // 内含「编辑会话 → 只读渲染视图」的切换
   }
   function ideasExitPen() {
-    if (penPainting) { penPainting = false; penTouched = {}; }
+    ideaPenCancel();
     ideaMode = 'edit';
+    ideasUpdatePenButton();
     var ed = ideaEditorEl();
     if (ed) ed.classList.remove('pen-mode');
     try { localStorage.setItem(IDEA_MODE_KEY, 'edit'); } catch(e) {}
@@ -3658,78 +3680,98 @@ body {
   }
 
   function ideaPenTouch(idx) {
-    if (typeof idx !== 'number' || isNaN(idx) || idx < 0) return;
-    if (penTouched[idx]) return;
-    penTouched[idx] = true;
+    if (!penStroke || !penLineEls[idx] || penStroke.touched[idx]) return;
+    penStroke.touched[idx] = true;
     var el = penLineEls[idx];
-    if (el) {
-      el.classList.add('pen-hit');
-      // 实时预览：当前画笔颜色直接铺到行上，松手才真正写进真源
-      if (ideaPenColor && ideaPenColor !== 'e') el.classList.add('pen-live-' + ideaPenColor);
-    }
+    el.classList.remove('pen-live-r', 'pen-live-y', 'pen-live-g', 'pen-live-e');
+    el.classList.add('pen-hit', 'pen-live-' + penStroke.color);
   }
 
-  // 编辑器内按 y 坐标命中行（覆盖 padding/缝隙，避免拖到行间空隙就断涂）
-  function penLineAtY(y) {
-    for (var k in penLineEls) {
-      var el = penLineEls[k];
-      if (!el) continue;
-      var r = el.getBoundingClientRect();
-      if (y >= r.top && y <= r.bottom) return el;
-    }
-    return null;
-  }
-
-  // 涂抹命中：涂到某一行就标记该行；点在块的小球/色条上则整块一起换色
+  // 只接受编辑器可见区域内的命中；小球/色块边缘优先命中整块。
   function ideaPenHit(e) {
-    var el = e.target;
-    var lineEl = el && el.closest ? el.closest('.idea-line') : null;
-    if (!lineEl) {
-      // 兜底1：指针在子元素/滚动条边缘时，用命中测试再找一次
-      try {
-        var hit = document.elementFromPoint(e.clientX, e.clientY);
-        if (hit && hit !== el && hit.closest) lineEl = hit.closest('.idea-line') || null;
-      } catch (err) { lineEl = null; }
+    var ed = ideaEditorEl(), r = ed.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX >= r.right - (ed.offsetWidth - ed.clientWidth) ||
+        e.clientY < r.top || e.clientY > r.bottom) return null;
+    var target = document.elementFromPoint(e.clientX, e.clientY);
+    if (!target || !ed.contains(target)) return null;
+    var line = target.closest('.idea-line');
+    var block = target.closest('.idea-block');
+    if (!line && block) return Array.prototype.map.call(block.querySelectorAll('.idea-line'), function(l) {
+      return Number(l.dataset.line);
+    });
+    // 高 DPI 下 elementFromPoint 会在行边界提前命中下一行；几何范围是行号的依据。
+    for (var k in penLineEls) {
+      var lr = penLineEls[k].getBoundingClientRect();
+      if (e.clientY >= lr.top && e.clientY < lr.bottom) return [Number(k)];
     }
-    if (!lineEl) {
-      // 兜底2：指针在编辑器的 padding/行间缝隙里，按 y 坐标找该位置的行
-      var ed = ideaEditorEl();
-      if (ed) {
-        var edr = ed.getBoundingClientRect();
-        if (e.clientX >= edr.left && e.clientX <= edr.right &&
-            e.clientY >= edr.top && e.clientY <= edr.bottom) {
-          lineEl = penLineAtY(e.clientY);
-        }
-      }
+    return line ? [Number(line.dataset.line)] : null;
+  }
+
+  function ideaPenMove(e) {
+    var hit = ideaPenHit(e);
+    if (!hit) { penStroke.last = null; return; }
+    var idx = hit[0];
+    // 快速移动会跳过 mouse/pointermove 事件，补齐两个命中行之间的路径。
+    if (penStroke.last !== null) {
+      for (var i = Math.min(penStroke.last, idx); i <= Math.max(penStroke.last, idx); i++) ideaPenTouch(i);
     }
-    if (lineEl) {
-      ideaPenTouch(parseInt(lineEl.dataset.line, 10));
-      return;
-    }
-    var blockEl = el.closest ? el.closest('.idea-block') : null;
-    if (blockEl) {
-      blockEl.querySelectorAll('.idea-line').forEach(function(l) {
-        ideaPenTouch(parseInt(l.dataset.line, 10));
+    hit.forEach(ideaPenTouch);
+    penStroke.last = hit[hit.length - 1];
+  }
+
+  function ideaPenStart(e) {
+    if (ideaMode !== 'pen' || penStroke || e.button !== 0 || e.isPrimary === false) return;
+    var hit = ideaPenHit(e);
+    if (!hit) return;
+    e.preventDefault();
+    var ed = ideaEditorEl();
+    var raw = document.getElementById('ideasTextarea').value;
+    penStroke = { date: ideasCurrentDate, raw: raw, color: ideaPenColor,
+      touched: {}, last: null, x: e.clientX, y: e.clientY, dragging: false, pointerId: e.pointerId };
+    penJustCommitted = false;
+    // 预览独立于原色块：换色和擦除都覆盖原颜色，不反解 DOM、不改变布局。
+    ed.classList.add('pen-preview');
+    raw.split('\n').forEach(function(line, i) {
+      var color = ideaParseLine(line).color;
+      if (color && penLineEls[i]) penLineEls[i].classList.add('pen-live-' + color);
+    });
+    hit.forEach(ideaPenTouch);
+    penStroke.last = hit[hit.length - 1];
+    hideIdeaTip();
+  }
+
+  function ideaPenCancel() {
+    if (!penStroke) return;
+    penStroke = null;
+    var ed = ideaEditorEl();
+    if (ed) {
+      ed.classList.remove('pen-preview');
+      ed.querySelectorAll('.idea-line').forEach(function(line) {
+        line.classList.remove('pen-hit', 'pen-live-r', 'pen-live-y', 'pen-live-g', 'pen-live-e');
       });
     }
   }
 
-  function ideaPenCommit() {
-    var touched = Object.keys(penTouched);
-    if (touched.length === 0) return;
+  function ideaPenFinish() {
+    if (!penStroke) return;
+    var stroke = penStroke;
     var ta = document.getElementById('ideasTextarea');
-    var lines = (ta.value || '').split('\n');
-    touched.forEach(function(k) {
-      ideaSetLineColor(lines, parseInt(k, 10), ideaPenColor);
+    ideaPenCancel();
+    penJustCommitted = true;
+    setTimeout(function() { penJustCommitted = false; }, 0);
+    // 页码或正文在这笔期间被替换，丢弃笔画，禁止把旧索引写到新正文。
+    if (stroke.date !== ideasCurrentDate || stroke.raw !== ta.value) return;
+    var lines = stroke.raw.split('\n');
+    Object.keys(stroke.touched).forEach(function(k) {
+      ideaSetLineColor(lines, Number(k), stroke.color);
     });
-    ta.value = lines.join('\n');
-    penTouched = {};
-    // 重排前记住滚动位置：连续涂多行时不跳滚动
-    var ed = ideaEditorEl();
-    var st = ed ? ed.scrollTop : 0;
-    ideasSavePage();          // 落盘
-    ideaRenderIntoEditor();   // 重排单区域（涂抹结果就位），保持涂抹态可连续涂
-    if (ed) { try { ed.scrollTop = st; } catch (err) {} }
+    var next = lines.join('\n');
+    if (next === stroke.raw) return;
+    var ed = ideaEditorEl(), st = ed.scrollTop;
+    ta.value = next;
+    ideasSavePage();
+    ideaRenderIntoEditor();
+    ed.scrollTop = st;
   }
 
   // ── 蜡笔按钮：开关涂抹态 + 弹出选色面板 ──
@@ -3776,87 +3818,64 @@ body {
     e.preventDefault();
     openIdeaEditFromEl(link);
   });
-  previewEl.addEventListener('mousedown', function(e) {
-    if (e.button !== 0) return;
-    if (ideaMode !== 'pen') {
-      // 面板开着但未进涂抹态：也必须拦掉文本选择——否则拖动会选中文字，
-      // 用户误按删除/输入就让选中内容消失（「涂到下一行两行都消失」的根因）
-      var pop = document.getElementById('ideasPenGroup');
-      if (pop && pop.classList.contains('open')) e.preventDefault();
-      return;
-    }
-    if (ideaPenColor === '') { e.preventDefault(); return; }  // 未选色也不许选中文本
+  // Pointer Events 同时覆盖鼠标、触笔和触摸；笔画生命周期只有一个状态对象。
+  previewEl.addEventListener('pointerdown', ideaPenStart);
+  document.addEventListener('pointermove', function(e) {
+    if (!penStroke || e.pointerId !== penStroke.pointerId) return;
+    if (e.buttons === 0) { ideaPenFinish(); return; }
     e.preventDefault();
-    penPainting = true;
-    penTouched = {};
-    penPress = { x: e.clientX, y: e.clientY };
-    penDragging = false;
-    penJustCommitted = false;
-    // 清掉上次未松手遗留的预览样式（如拖出窗口未提交）
-    var ed0 = ideaEditorEl();
-    if (ed0) {
-      var olds = ed0.querySelectorAll('.pen-live-r, .pen-live-y, .pen-live-g');
-      for (var i = 0; i < olds.length; i++) olds[i].classList.remove('pen-live-r', 'pen-live-y', 'pen-live-g');
-    }
-    ideaPenHit(e);
+    var dx = e.clientX - penStroke.x, dy = e.clientY - penStroke.y;
+    if (!penStroke.dragging && dx * dx + dy * dy <= PEN_CLICK_THRESHOLD * PEN_CLICK_THRESHOLD) return;
+    penStroke.dragging = true;
+    ideaPenMove(e);
+  }, { passive: false });
+  document.addEventListener('pointerup', function(e) {
+    if (!penStroke || e.pointerId !== penStroke.pointerId) return;
+    if (penStroke.dragging) ideaPenMove(e);
+    ideaPenFinish();
   });
-  // mousemove 挂 document：拖动中鼠标滑出窄编辑区（padding/滚动条/边缘）也不断涂
-  document.addEventListener('mousemove', function(e) {
-    if (!penPainting) return;
-    e.preventDefault();
-    // 单击防抖：位移未超阈值不涂新行（按住时手抖/边界微移不会把下一行涂上）
-    if (!penDragging && penPress) {
-      var dx = e.clientX - penPress.x;
-      var dy = e.clientY - penPress.y;
-      if (dx * dx + dy * dy <= PEN_CLICK_THRESHOLD * PEN_CLICK_THRESHOLD) return;
-      penDragging = true;
-    }
-    ideaPenHit(e);
+  document.addEventListener('pointercancel', function(e) {
+    if (penStroke && e.pointerId === penStroke.pointerId) ideaPenCancel();
   });
-  document.addEventListener('mouseup', function() {
-    if (!penPainting) return;
-    penPainting = false;
-    penPress = null;
-    penDragging = false;
-    ideaPenCommit();
-    penJustCommitted = true;
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && penStroke) { e.preventDefault(); ideaPenCancel(); }
   });
-  // 拖出浏览器窗口：mouseup 不触发，用 mouseleave 兜底提交，预览不会残留
-  document.addEventListener('mouseleave', function() {
-    if (!penPainting) return;
-    penPainting = false;
-    penPress = null;
-    penDragging = false;
-    ideaPenCommit();
-    penJustCommitted = true;
+  document.addEventListener('mouseleave', ideaPenFinish);
+  window.addEventListener('blur', ideaPenFinish);
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) ideaPenFinish();
   });
-  // 触摸屏：涂抹退化为“点一下整行”（真实输入总会先触发 mousedown 已处理，
-  // 这里只兜底「只派发 click 的异常事件源」，并用 penJustCommitted 挡掉重排后的二次命中）
   previewEl.addEventListener('click', function(e) {
-    if (penJustCommitted) { penJustCommitted = false; return; }
+    if (penJustCommitted) return;
     if (ideaMode === 'pen') {
-      if (ideaPenColor === '' || penPainting) return;
-      if (!e.target.closest || !e.target.closest('.idea-line')) return;
-      ideaPenHit(e);
-      ideaPenCommit();
+      // 键盘/辅助技术仅派发 click 时，也通过同一提交路径上色。
+      if (!penStroke && e.detail === 0 && e.target.closest('.idea-line')) {
+        var idx = Number(e.target.closest('.idea-line').dataset.line);
+        penStroke = { date: ideasCurrentDate, raw: document.getElementById('ideasTextarea').value,
+          color: ideaPenColor, touched: {}, last: idx };
+        ideaPenTouch(idx);
+        ideaPenFinish();
+      }
       return;
     }
-    // 方案A：渲染视图（只读）点击非链接区域 → 进入编辑会话，光标定位到点击行尾
     if (ideaView === 'render') {
-      if (e.target.closest && e.target.closest('.idea-link')) return;  // 链接交给 tooltip/双击编辑
-      var lineEl = e.target.closest ? e.target.closest('.idea-line') : null;
-      var idx = lineEl ? parseInt(lineEl.getAttribute('data-line') || '-1', 10) : -1;
-      ideaEnterEditView(idx);
+      if (e.target.closest('.idea-link')) return;
+      var line = e.target.closest('.idea-line');
+      ideaEnterEditView(line ? Number(line.dataset.line) : -1);
     }
   });
-  // 涂抹态防「文本拖拽移动」：浏览器对 contenteditable 选中文本的默认拖拽会把
-  // 文本搬走/删除，拖拽涂抹必须掐掉这个默认行为（配合 user-select:none 双保险）
   previewEl.addEventListener('dragstart', function(e) {
     if (ideaMode === 'pen') e.preventDefault();
   });
-  // 涂抹态禁键盘编辑：Delete/Backspace/输入都会把选中内容删掉，涂抹期间不编辑
   previewEl.addEventListener('keydown', function(e) {
-    if (ideaMode === 'pen') e.preventDefault();
+    if (ideaMode !== 'pen') return;
+    e.preventDefault();
+    if (e.key === 'Escape') ideaPenCancel();
+  });
+  previewEl.addEventListener('paste', function(e) {
+    if (ideaView !== 'edit' || ideaMode === 'pen') { e.preventDefault(); return; }
+    e.preventDefault();
+    document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
   });
 
   // ── 悬停说明（tooltip） ──
@@ -3881,7 +3900,7 @@ body {
   }
   previewEl.addEventListener('mouseover', function(e) {
     var link = e.target.closest ? e.target.closest('.idea-link') : null;
-    if (link && !penPainting) showIdeaTip(link);
+    if (link && !penStroke) showIdeaTip(link);
   });
   previewEl.addEventListener('mouseout', function(e) {
     if (e.target.closest && e.target.closest('.idea-link')) hideIdeaTip();
@@ -4039,28 +4058,69 @@ body {
     { name: '第十一十二节', sub: '11、12小节', time: '19:40~21:15' }
   ];
 
-  // 预置课表数据（从xls解析）
+  // 2026-10-16 学校导出课表；精确开课周次，不包含学生身份信息。
   var DEFAULT_COURSES = [
-    { day:1, startWeek:1, endWeek:9, name:'信息论基础', teacher:'邢键教授', location:'成栋楼305', slot:0 },
-    { day:1, startWeek:1, endWeek:3, name:'嵌入式系统原理', teacher:'李明讲师（高校）', location:'成栋楼311', slot:0 },
-    { day:1, startWeek:4, endWeek:7, name:'嵌入式系统原理', teacher:'李文超副教授', location:'成栋楼311', slot:0 },
-    { day:1, startWeek:11, endWeek:12, name:'数字信号处理', teacher:'刘淑玉讲师（高校）', location:'成栋楼811', slot:0 },
-    { day:3, startWeek:1, endWeek:3, name:'嵌入式系统原理', teacher:'李明讲师（高校）', location:'成栋楼311', slot:0 },
-    { day:3, startWeek:4, endWeek:7, name:'嵌入式系统原理', teacher:'李文超副教授', location:'成栋楼311', slot:0 },
-    { day:7, startWeek:14, endWeek:14, name:'高频电子线路', teacher:'白岩副教授', location:'成栋楼826', slot:0 },
-    { day:7, startWeek:15, endWeek:15, name:'高频电子线路', teacher:'白岩副教授', location:'成栋楼820', slot:0 },
-    { day:2, startWeek:1, endWeek:15, name:'高频电子线路', teacher:'白岩副教授', location:'成栋楼336', slot:1 },
-    { day:3, startWeek:1, endWeek:9, name:'信息论基础', teacher:'邢键教授', location:'成栋楼305', slot:1 },
-    { day:4, startWeek:1, endWeek:17, name:'数字信号处理', teacher:'刘淑玉讲师（高校）', location:'成栋楼334', slot:1 },
-    { day:5, startWeek:5, endWeek:9, name:'信息论基础', teacher:'邢键教授', location:'成栋楼822', slot:1 },
-    { day:2, startWeek:1, endWeek:17, name:'数字信号处理', teacher:'刘淑玉讲师（高校）', location:'成栋楼334', slot:2 },
-    { day:4, startWeek:1, endWeek:15, name:'高频电子线路', teacher:'白岩副教授', location:'成栋楼336', slot:2 },
-    { day:6, startWeek:2, endWeek:4, name:'嵌入式系统原理', teacher:'李明讲师（高校）', location:'成栋楼820', slot:2 },
-    { day:6, startWeek:5, endWeek:8, name:'嵌入式系统原理', teacher:'李文超副教授', location:'成栋楼820', slot:2 },
-    { day:6, startWeek:12, endWeek:13, name:'高频电子线路', teacher:'白岩副教授', location:'成栋楼826', slot:2 },
-    { day:1, startWeek:1, endWeek:11, name:'毛泽东思想和中国特色社会主义理论体系概论', teacher:'李军刚教授', location:'锦绣楼T502', slot:3 },
-    { day:5, startWeek:1, endWeek:11, name:'毛泽东思想和中国特色社会主义理论体系概论', teacher:'李军刚教授', location:'锦绣楼T502', slot:3 }
+    {"name":"信息论基础","teacher":"邢键教授","weeks":[1,2,3,4,6,7,8,9],"startWeek":1,"endWeek":9,"location":"成栋楼305","day":1,"slot":0},
+    {"name":"数字信号处理","teacher":"刘淑玉讲师（高校）","weeks":[11,12],"startWeek":11,"endWeek":12,"location":"成栋楼811","day":1,"slot":0},
+    {"name":"传感器与检测技术","teacher":"徐凯宏教授","weeks":[9,10,11,12,13,14,15,16],"startWeek":9,"endWeek":16,"location":"成栋楼402","day":2,"slot":0},
+    {"name":"嵌入式系统原理","teacher":"李明讲师（高校）","weeks":[1,2,3],"startWeek":1,"endWeek":3,"location":"成栋楼311","day":3,"slot":0},
+    {"name":"嵌入式系统原理","teacher":"李文超副教授","weeks":[4,6,7],"startWeek":4,"endWeek":7,"location":"成栋楼311","day":3,"slot":0},
+    {"name":"嵌入式操作系统","teacher":"赵永辉高级实验师","weeks":[1,2,3,4,5,6,7],"startWeek":1,"endWeek":7,"location":"成栋楼402","day":4,"slot":0},
+    {"name":"传感器与检测技术","teacher":"徐凯宏教授","weeks":[9,10,11,12,13,14,15,16],"startWeek":9,"endWeek":16,"location":"成栋楼402","day":4,"slot":0},
+    {"name":"信息论基础","teacher":"邢键教授","weeks":[6],"startWeek":6,"endWeek":6,"location":"成栋楼305","day":6,"slot":0},
+    {"name":"嵌入式系统原理","teacher":"李文超副教授","weeks":[8],"startWeek":8,"endWeek":8,"location":"成栋楼311","day":7,"slot":0},
+    {"name":"高频电子线路","teacher":"白岩副教授","weeks":[15],"startWeek":15,"endWeek":15,"location":"成栋楼820","day":7,"slot":0},
+    {"name":"嵌入式系统原理","teacher":"李明讲师（高校）","weeks":[1,2,3],"startWeek":1,"endWeek":3,"location":"成栋楼311","day":1,"slot":1},
+    {"name":"嵌入式系统原理","teacher":"李文超副教授","weeks":[4,6,7],"startWeek":4,"endWeek":7,"location":"成栋楼311","day":1,"slot":1},
+    {"name":"高频电子线路","teacher":"白岩副教授","weeks":[1,2,3,4,6,7,8,9,10,11,12,13,14,15],"startWeek":1,"endWeek":15,"location":"成栋楼336","day":2,"slot":1},
+    {"name":"信息论基础","teacher":"邢键教授","weeks":[1,2,3,4,6,7,8,9],"startWeek":1,"endWeek":9,"location":"成栋楼305","day":3,"slot":1},
+    {"name":"数字信号处理","teacher":"刘淑玉讲师（高校）","weeks":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"startWeek":1,"endWeek":17,"location":"成栋楼334","day":4,"slot":1},
+    {"name":"信息论基础","teacher":"邢键教授","weeks":[5,6,7,8,9],"startWeek":5,"endWeek":9,"location":"成栋楼822","day":5,"slot":1},
+    {"name":"嵌入式系统原理","teacher":"李文超副教授","weeks":[6],"startWeek":6,"endWeek":6,"location":"成栋楼311","day":6,"slot":1},
+    {"name":"高频电子线路","teacher":"白岩副教授","weeks":[7],"startWeek":7,"endWeek":7,"location":"成栋楼336","day":7,"slot":1},
+    {"name":"信息论基础","teacher":"邢键教授","weeks":[8],"startWeek":8,"endWeek":8,"location":"成栋楼305","day":7,"slot":1},
+    {"name":"高频电子线路","teacher":"白岩副教授","weeks":[14],"startWeek":14,"endWeek":14,"location":"成栋楼826","day":7,"slot":1},
+    {"name":"数字信号处理","teacher":"刘淑玉讲师（高校）","weeks":[1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,17],"startWeek":1,"endWeek":17,"location":"成栋楼334","day":2,"slot":2},
+    {"name":"高频电子线路","teacher":"白岩副教授","weeks":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],"startWeek":1,"endWeek":15,"location":"成栋楼336","day":4,"slot":2},
+    {"name":"传感器与检测技术","teacher":"徐凯宏教授","weeks":[17,18],"startWeek":17,"endWeek":18,"location":"成栋楼916","day":5,"slot":2},
+    {"name":"嵌入式系统原理","teacher":"李明讲师（高校）","weeks":[2,3,4],"startWeek":2,"endWeek":4,"location":"成栋楼820","day":6,"slot":2},
+    {"name":"嵌入式系统原理","teacher":"李文超副教授","weeks":[5,7,8],"startWeek":5,"endWeek":8,"location":"成栋楼820","day":6,"slot":2},
+    {"name":"数字信号处理","teacher":"刘淑玉讲师（高校）","weeks":[7],"startWeek":7,"endWeek":7,"location":"成栋楼334","day":7,"slot":2},
+    {"name":"高频电子线路","teacher":"白岩副教授","weeks":[12,13],"startWeek":12,"endWeek":13,"location":"成栋楼826","day":7,"slot":2},
+    {"name":"毛泽东思想和中国特色社会主义理论体系概论","teacher":"李军刚教授","weeks":[1,2,3,4,6,7,8,9,10,11],"startWeek":1,"endWeek":11,"location":"锦绣楼T502","day":1,"slot":3},
+    {"name":"嵌入式操作系统","teacher":"赵永辉高级实验师","weeks":[1,2,3,4,6,7],"startWeek":1,"endWeek":7,"location":"成栋楼436","day":2,"slot":3},
+    {"name":"电子测量","teacher":"徐凯宏教授","weeks":[9,10,11,12,13,14,15,16],"startWeek":9,"endWeek":16,"location":"成栋楼404","day":2,"slot":3},
+    {"name":"电子测量","teacher":"徐凯宏教授","weeks":[9,10,11,12,13,14,15,16],"startWeek":9,"endWeek":16,"location":"成栋楼404","day":4,"slot":3},
+    {"name":"毛泽东思想和中国特色社会主义理论体系概论","teacher":"李军刚教授","weeks":[1,2,3,4,5,6,7,8,9,10,11],"startWeek":1,"endWeek":11,"location":"锦绣楼T502","day":5,"slot":3},
+    {"name":"毛泽东思想和中国特色社会主义理论体系概论","teacher":"李军刚教授","weeks":[6],"startWeek":6,"endWeek":6,"location":"锦绣楼T502","day":6,"slot":3},
+    {"name":"嵌入式操作系统","teacher":"赵永辉高级实验师","weeks":[7],"startWeek":7,"endWeek":7,"location":"成栋楼436","day":7,"slot":3},
+    {"name":"嵌入式系统原理","teacher":"李文超副教授","weeks":[8],"startWeek":8,"endWeek":8,"location":"成栋楼820","day":6,"slot":3}
   ];
+  var DEFAULT_SCHEDULE_NOTES = "FPGA综合设计 李明,李文超 8周;高频电子线路课程设计 白岩,王梓丞,杨柳松,朱自民 15-16周;数字信号处理课程设计 刘淑玉,赵亚凤 14周;思想政治理论课实践 胡庆祝 1-18周;\n连堂补充：第8周周六，嵌入式系统原理第5–8节连上。";
+  var CONFIRMED_CONTINUATION_SOURCE = "{\"day\":1,\"endWeek\":11,\"location\":\"锦绣楼T502\",\"name\":\"毛泽东思想和中国特色社会主义理论体系概论\",\"slot\":3,\"startWeek\":1,\"teacher\":\"李军刚教授\",\"weeks\":[1,2,3,4,6,7,8,9,10,11]}\n{\"day\":1,\"endWeek\":12,\"location\":\"成栋楼811\",\"name\":\"数字信号处理\",\"slot\":0,\"startWeek\":11,\"teacher\":\"刘淑玉讲师（高校）\",\"weeks\":[11,12]}\n{\"day\":1,\"endWeek\":3,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":1,\"startWeek\":1,\"teacher\":\"李明讲师（高校）\",\"weeks\":[1,2,3]}\n{\"day\":1,\"endWeek\":7,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":1,\"startWeek\":4,\"teacher\":\"李文超副教授\",\"weeks\":[4,6,7]}\n{\"day\":1,\"endWeek\":9,\"location\":\"成栋楼305\",\"name\":\"信息论基础\",\"slot\":0,\"startWeek\":1,\"teacher\":\"邢键教授\",\"weeks\":[1,2,3,4,6,7,8,9]}\n{\"day\":2,\"endWeek\":15,\"location\":\"成栋楼336\",\"name\":\"高频电子线路\",\"slot\":1,\"startWeek\":1,\"teacher\":\"白岩副教授\",\"weeks\":[1,2,3,4,6,7,8,9,10,11,12,13,14,15]}\n{\"day\":2,\"endWeek\":16,\"location\":\"成栋楼402\",\"name\":\"传感器与检测技术\",\"slot\":0,\"startWeek\":9,\"teacher\":\"徐凯宏教授\",\"weeks\":[9,10,11,12,13,14,15,16]}\n{\"day\":2,\"endWeek\":16,\"location\":\"成栋楼404\",\"name\":\"电子测量\",\"slot\":3,\"startWeek\":9,\"teacher\":\"徐凯宏教授\",\"weeks\":[9,10,11,12,13,14,15,16]}\n{\"day\":2,\"endWeek\":17,\"location\":\"成栋楼334\",\"name\":\"数字信号处理\",\"slot\":2,\"startWeek\":1,\"teacher\":\"刘淑玉讲师（高校）\",\"weeks\":[1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,17]}\n{\"day\":2,\"endWeek\":7,\"location\":\"成栋楼436\",\"name\":\"嵌入式操作系统\",\"slot\":3,\"startWeek\":1,\"teacher\":\"赵永辉高级实验师\",\"weeks\":[1,2,3,4,6,7]}\n{\"day\":3,\"endWeek\":3,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":0,\"startWeek\":1,\"teacher\":\"李明讲师（高校）\",\"weeks\":[1,2,3]}\n{\"day\":3,\"endWeek\":7,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":0,\"startWeek\":4,\"teacher\":\"李文超副教授\",\"weeks\":[4,6,7]}\n{\"day\":3,\"endWeek\":9,\"location\":\"成栋楼305\",\"name\":\"信息论基础\",\"slot\":1,\"startWeek\":1,\"teacher\":\"邢键教授\",\"weeks\":[1,2,3,4,6,7,8,9]}\n{\"day\":4,\"endWeek\":15,\"location\":\"成栋楼336\",\"name\":\"高频电子线路\",\"slot\":2,\"startWeek\":1,\"teacher\":\"白岩副教授\",\"weeks\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}\n{\"day\":4,\"endWeek\":16,\"location\":\"成栋楼402\",\"name\":\"传感器与检测技术\",\"slot\":0,\"startWeek\":9,\"teacher\":\"徐凯宏教授\",\"weeks\":[9,10,11,12,13,14,15,16]}\n{\"day\":4,\"endWeek\":16,\"location\":\"成栋楼404\",\"name\":\"电子测量\",\"slot\":3,\"startWeek\":9,\"teacher\":\"徐凯宏教授\",\"weeks\":[9,10,11,12,13,14,15,16]}\n{\"day\":4,\"endWeek\":17,\"location\":\"成栋楼334\",\"name\":\"数字信号处理\",\"slot\":1,\"startWeek\":1,\"teacher\":\"刘淑玉讲师（高校）\",\"weeks\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]}\n{\"day\":4,\"endWeek\":7,\"location\":\"成栋楼402\",\"name\":\"嵌入式操作系统\",\"slot\":0,\"startWeek\":1,\"teacher\":\"赵永辉高级实验师\",\"weeks\":[1,2,3,4,5,6,7]}\n{\"day\":5,\"endWeek\":11,\"location\":\"锦绣楼T502\",\"name\":\"毛泽东思想和中国特色社会主义理论体系概论\",\"slot\":3,\"startWeek\":1,\"teacher\":\"李军刚教授\",\"weeks\":[1,2,3,4,5,6,7,8,9,10,11]}\n{\"day\":5,\"endWeek\":18,\"location\":\"成栋楼916\",\"name\":\"传感器与检测技术\",\"slot\":2,\"startWeek\":17,\"teacher\":\"徐凯宏教授\",\"weeks\":[17,18]}\n{\"day\":5,\"endWeek\":9,\"location\":\"成栋楼822\",\"name\":\"信息论基础\",\"slot\":1,\"startWeek\":5,\"teacher\":\"邢键教授\",\"weeks\":[5,6,7,8,9]}\n{\"day\":6,\"endWeek\":4,\"location\":\"成栋楼820\",\"name\":\"嵌入式系统原理\",\"slot\":2,\"startWeek\":2,\"teacher\":\"李明讲师（高校）\",\"weeks\":[2,3,4]}\n{\"day\":6,\"endWeek\":6,\"location\":\"成栋楼305\",\"name\":\"信息论基础\",\"slot\":0,\"startWeek\":6,\"teacher\":\"邢键教授\",\"weeks\":[6]}\n{\"day\":6,\"endWeek\":6,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":1,\"startWeek\":6,\"teacher\":\"李文超副教授\",\"weeks\":[6]}\n{\"day\":6,\"endWeek\":6,\"location\":\"锦绣楼T502\",\"name\":\"毛泽东思想和中国特色社会主义理论体系概论\",\"slot\":3,\"startWeek\":6,\"teacher\":\"李军刚教授\",\"weeks\":[6]}\n{\"day\":6,\"endWeek\":8,\"location\":\"成栋楼820\",\"name\":\"嵌入式系统原理\",\"slot\":2,\"startWeek\":5,\"teacher\":\"李文超副教授\",\"weeks\":[5,7,8]}\n{\"day\":7,\"endWeek\":13,\"location\":\"成栋楼826\",\"name\":\"高频电子线路\",\"slot\":2,\"startWeek\":12,\"teacher\":\"白岩副教授\",\"weeks\":[12,13]}\n{\"day\":7,\"endWeek\":14,\"location\":\"成栋楼826\",\"name\":\"高频电子线路\",\"slot\":1,\"startWeek\":14,\"teacher\":\"白岩副教授\",\"weeks\":[14]}\n{\"day\":7,\"endWeek\":15,\"location\":\"成栋楼820\",\"name\":\"高频电子线路\",\"slot\":0,\"startWeek\":15,\"teacher\":\"白岩副教授\",\"weeks\":[15]}\n{\"day\":7,\"endWeek\":7,\"location\":\"成栋楼334\",\"name\":\"数字信号处理\",\"slot\":2,\"startWeek\":7,\"teacher\":\"刘淑玉讲师（高校）\",\"weeks\":[7]}\n{\"day\":7,\"endWeek\":7,\"location\":\"成栋楼336\",\"name\":\"高频电子线路\",\"slot\":1,\"startWeek\":7,\"teacher\":\"白岩副教授\",\"weeks\":[7]}\n{\"day\":7,\"endWeek\":7,\"location\":\"成栋楼436\",\"name\":\"嵌入式操作系统\",\"slot\":3,\"startWeek\":7,\"teacher\":\"赵永辉高级实验师\",\"weeks\":[7]}\n{\"day\":7,\"endWeek\":8,\"location\":\"成栋楼305\",\"name\":\"信息论基础\",\"slot\":1,\"startWeek\":8,\"teacher\":\"邢键教授\",\"weeks\":[8]}\n{\"day\":7,\"endWeek\":8,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":0,\"startWeek\":8,\"teacher\":\"李文超副教授\",\"weeks\":[8]}";
+  var CONFIRMED_CONTINUATION_NOTE = "连堂补充：第8周周六，嵌入式系统原理第5–8节连上。";
+
+  // 仅升级这两份已核实的旧数据：旧预置课表、旧解析器产生的错误缓存。
+  // 按完整记录比较，任何手动增删、改名或改周次都会使签名不同，保留其现状。
+  var LEGACY_SCHEDULE_SIGNATURES = [
+    CONFIRMED_CONTINUATION_SOURCE,
+    "{\"day\":1,\"endWeek\":11,\"location\":\"锦绣楼T502\",\"name\":\"毛泽东思想和中国特色社会主义理论体系概论\",\"slot\":3,\"startWeek\":1,\"teacher\":\"李军刚教授\"}\n{\"day\":1,\"endWeek\":12,\"location\":\"成栋楼811\",\"name\":\"数字信号处理\",\"slot\":0,\"startWeek\":11,\"teacher\":\"刘淑玉讲师（高校）\"}\n{\"day\":1,\"endWeek\":3,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":0,\"startWeek\":1,\"teacher\":\"李明讲师（高校）\"}\n{\"day\":1,\"endWeek\":7,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":0,\"startWeek\":4,\"teacher\":\"李文超副教授\"}\n{\"day\":1,\"endWeek\":9,\"location\":\"成栋楼305\",\"name\":\"信息论基础\",\"slot\":0,\"startWeek\":1,\"teacher\":\"邢键教授\"}\n{\"day\":2,\"endWeek\":15,\"location\":\"成栋楼336\",\"name\":\"高频电子线路\",\"slot\":1,\"startWeek\":1,\"teacher\":\"白岩副教授\"}\n{\"day\":2,\"endWeek\":17,\"location\":\"成栋楼334\",\"name\":\"数字信号处理\",\"slot\":2,\"startWeek\":1,\"teacher\":\"刘淑玉讲师（高校）\"}\n{\"day\":3,\"endWeek\":3,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":0,\"startWeek\":1,\"teacher\":\"李明讲师（高校）\"}\n{\"day\":3,\"endWeek\":7,\"location\":\"成栋楼311\",\"name\":\"嵌入式系统原理\",\"slot\":0,\"startWeek\":4,\"teacher\":\"李文超副教授\"}\n{\"day\":3,\"endWeek\":9,\"location\":\"成栋楼305\",\"name\":\"信息论基础\",\"slot\":1,\"startWeek\":1,\"teacher\":\"邢键教授\"}\n{\"day\":4,\"endWeek\":15,\"location\":\"成栋楼336\",\"name\":\"高频电子线路\",\"slot\":2,\"startWeek\":1,\"teacher\":\"白岩副教授\"}\n{\"day\":4,\"endWeek\":17,\"location\":\"成栋楼334\",\"name\":\"数字信号处理\",\"slot\":1,\"startWeek\":1,\"teacher\":\"刘淑玉讲师（高校）\"}\n{\"day\":5,\"endWeek\":11,\"location\":\"锦绣楼T502\",\"name\":\"毛泽东思想和中国特色社会主义理论体系概论\",\"slot\":3,\"startWeek\":1,\"teacher\":\"李军刚教授\"}\n{\"day\":5,\"endWeek\":9,\"location\":\"成栋楼822\",\"name\":\"信息论基础\",\"slot\":1,\"startWeek\":5,\"teacher\":\"邢键教授\"}\n{\"day\":6,\"endWeek\":13,\"location\":\"成栋楼826\",\"name\":\"高频电子线路\",\"slot\":2,\"startWeek\":12,\"teacher\":\"白岩副教授\"}\n{\"day\":6,\"endWeek\":4,\"location\":\"成栋楼820\",\"name\":\"嵌入式系统原理\",\"slot\":2,\"startWeek\":2,\"teacher\":\"李明讲师（高校）\"}\n{\"day\":6,\"endWeek\":8,\"location\":\"成栋楼820\",\"name\":\"嵌入式系统原理\",\"slot\":2,\"startWeek\":5,\"teacher\":\"李文超副教授\"}\n{\"day\":7,\"endWeek\":14,\"location\":\"成栋楼826\",\"name\":\"高频电子线路\",\"slot\":0,\"startWeek\":14,\"teacher\":\"白岩副教授\"}\n{\"day\":7,\"endWeek\":15,\"location\":\"成栋楼820\",\"name\":\"高频电子线路\",\"slot\":0,\"startWeek\":15,\"teacher\":\"白岩副教授\"}",
+    "{\"day\":1,\"endWeek\":11,\"location\":\"锦绣楼(锦绣楼T502)\",\"name\":\"毛 泽 东 思 想 和 中 国 特 色 社 会 主 义 理 论 体 系 概 论\",\"slot\":3,\"startWeek\":1,\"teacher\":\"李军刚教授\"}\n{\"day\":2,\"endWeek\":15,\"location\":\"成栋楼(成栋楼336)\",\"name\":\"高 频 电 子 线 路\",\"slot\":1,\"startWeek\":1,\"teacher\":\"白岩副教授\"}\n{\"day\":2,\"endWeek\":17,\"location\":\"成栋楼(成栋楼334)\",\"name\":\"数 字 信 号 处 理\",\"slot\":2,\"startWeek\":1,\"teacher\":\"刘淑玉讲师（高校）\"}\n{\"day\":3,\"endWeek\":3,\"location\":\"成栋楼(成栋楼311) 嵌 入 式 系 统 原 理[李文超副教授] 4-7周;成栋楼(成栋楼311)\",\"name\":\"嵌 入 式 系 统 原 理\",\"slot\":0,\"startWeek\":1,\"teacher\":\"李明讲师（高校）\"}\n{\"day\":3,\"endWeek\":9,\"location\":\"成栋楼(成栋楼305)\",\"name\":\"信 息 论 基 础\",\"slot\":1,\"startWeek\":1,\"teacher\":\"邢键教授\"}\n{\"day\":4,\"endWeek\":15,\"location\":\"成栋楼(成栋楼336)\",\"name\":\"高 频 电 子 线 路\",\"slot\":2,\"startWeek\":1,\"teacher\":\"白岩副教授\"}\n{\"day\":4,\"endWeek\":17,\"location\":\"成栋楼(成栋楼334)\",\"name\":\"数 字 信 号 处 理\",\"slot\":1,\"startWeek\":1,\"teacher\":\"刘淑玉讲师（高校）\"}\n{\"day\":5,\"endWeek\":11,\"location\":\"锦绣楼(锦绣楼T502)\",\"name\":\"毛 泽 东 思 想 和 中 国 特 色 社 会 主 义 理 论 体 系 概 论\",\"slot\":3,\"startWeek\":1,\"teacher\":\"李军刚教授\"}\n{\"day\":5,\"endWeek\":9,\"location\":\"成栋楼(成栋楼822)\",\"name\":\"信 息 论 基 础\",\"slot\":1,\"startWeek\":5,\"teacher\":\"邢键教授\"}\n{\"day\":6,\"endWeek\":4,\"location\":\"成栋楼(成栋楼820) 嵌 入 式 系 统 原 理[李文超副教授] 5-8周;成栋楼(成栋楼820)\",\"name\":\"嵌 入 式 系 统 原 理\",\"slot\":2,\"startWeek\":2,\"teacher\":\"李明讲师（高校）\"}\n{\"day\":7,\"endWeek\":13,\"location\":\"成栋楼(成栋楼826)\",\"name\":\"高 频 电 子 线 路\",\"slot\":2,\"startWeek\":12,\"teacher\":\"白岩副教授\"}\n{\"day\":7,\"endWeek\":14,\"location\":\"成栋楼(成栋楼826) 高 频 电 子 线 路[白岩副教授] 15周;成栋楼(成栋楼820)\",\"name\":\"高 频 电 子 线 路\",\"slot\":0,\"startWeek\":14,\"teacher\":\"白岩副教授\"}"
+  ];
+
+  function upgradeKnownSchedule(data) {
+    var signature = data.courses.map(function(course) { return stableStringify(course); }).sort().join('\n');
+    if (LEGACY_SCHEDULE_SIGNATURES.indexOf(signature) === -1) return false;
+    data.courses = JSON.parse(JSON.stringify(DEFAULT_COURSES));
+    if (!data.notes) data.notes = DEFAULT_SCHEDULE_NOTES;
+    else if (data.notes.indexOf(CONFIRMED_CONTINUATION_NOTE) === -1) data.notes += '\n' + CONFIRMED_CONTINUATION_NOTE;
+    return true;
+  }
+
+  function createDefaultSchedule() {
+    return { semesterStart: SEMESTER_START, timeSlots: JSON.parse(JSON.stringify(DEFAULT_TIME_SLOTS)),
+      courses: JSON.parse(JSON.stringify(DEFAULT_COURSES)), notes: DEFAULT_SCHEDULE_NOTES };
+  }
 
   function loadScheduleData() {
     try {
@@ -4070,16 +4130,19 @@ body {
         // 结构校验：必须有 courses 数组
         if (parsed && Array.isArray(parsed.courses) && Array.isArray(parsed.timeSlots)) {
           scheduleData = parsed;
+          if (upgradeKnownSchedule(scheduleData)) {
+            saveScheduleData();  // saveWithBackup 在覆盖前保留原记录
+          }
         } else {
           // 数据格式不兼容，备份旧数据然后迁移
           var backupKey = SCHEDULE_KEY + '_backup_' + Date.now();
           localStorage.setItem(backupKey, raw);
           console.warn('Schedule data format incompatible, backed up to ' + backupKey);
-          scheduleData = { semesterStart: SEMESTER_START, timeSlots: DEFAULT_TIME_SLOTS, courses: DEFAULT_COURSES };
+          scheduleData = createDefaultSchedule();
           saveScheduleData();
         }
       } else {
-        scheduleData = { semesterStart: SEMESTER_START, timeSlots: DEFAULT_TIME_SLOTS, courses: DEFAULT_COURSES };
+        scheduleData = createDefaultSchedule();
         saveScheduleData();
       }
     } catch(e) {
@@ -4088,7 +4151,7 @@ body {
         var raw2 = localStorage.getItem(SCHEDULE_KEY);
         if (raw2) localStorage.setItem(SCHEDULE_KEY + '_backup_' + Date.now(), raw2);
       } catch(e2) {}
-      scheduleData = { semesterStart: SEMESTER_START, timeSlots: DEFAULT_TIME_SLOTS, courses: DEFAULT_COURSES };
+      scheduleData = createDefaultSchedule();
       saveScheduleData();
       console.warn('Schedule data parse error, reset to defaults. Old data backed up.');
     }
@@ -4168,14 +4231,14 @@ body {
         var cellCourses = [];
         for (var c = 0; c < scheduleData.courses.length; c++) {
           var cr = scheduleData.courses[c];
-          if (cr.day === (d+1) && cr.slot === s && cr.startWeek <= weekNum && cr.endWeek >= weekNum) {
+          if (cr.day === (d+1) && cr.slot === s && scheduleCourseHasWeek(cr, weekNum)) {
             cellCourses.push(cr);
           }
         }
         for (var cc = 0; cc < cellCourses.length; cc++) {
           var cr2 = cellCourses[cc];
           var scMeta = (cr2.teacher ? escapeHtml(cr2.teacher) + ' · ' : '') +
-            cr2.startWeek + (cr2.startWeek === cr2.endWeek ? '' : '-' + cr2.endWeek) + '周';
+            escapeHtml(scheduleWeeksLabel(cr2)) + '周';
           html += '<div class="schedule-course">' +
             '<div class="sc-name">' + escapeHtml(cr2.name) + '</div>' +
             '<div class="sc-location">📌 ' + escapeHtml(cr2.location) + '</div>' +
@@ -4188,6 +4251,9 @@ body {
     }
     html += '</tbody>';
     table.innerHTML = html;
+    var notes = document.getElementById('scheduleNotes');
+    notes.textContent = scheduleData.notes ? '课表备注\n' + scheduleData.notes : '';
+    notes.style.display = scheduleData.notes ? '' : 'none';
   }
 
   function showSchedule() {
@@ -4233,7 +4299,7 @@ body {
     document.getElementById('spTime').textContent = ts.name + ' ' + ts.time;
     // 预填课程名
     var cellCourses = scheduleData.courses.filter(function(cr) {
-      return cr.day === day && cr.slot === slot && cr.startWeek <= currentScheduleWeek && cr.endWeek >= currentScheduleWeek;
+      return cr.day === day && cr.slot === slot && scheduleCourseHasWeek(cr, currentScheduleWeek);
     });
     document.getElementById('spContent').value = cellCourses.length > 0 ? cellCourses[0].name : '';
     document.getElementById('schedulePlanModal').classList.add('show');
@@ -4294,39 +4360,36 @@ body {
 
     // 编辑模式 → 原编辑逻辑
     var cellCourses = scheduleData.courses.filter(function(cr) {
-      return cr.day === day && cr.slot === slot && cr.startWeek <= currentScheduleWeek && cr.endWeek >= currentScheduleWeek;
+      return cr.day === day && cr.slot === slot && scheduleCourseHasWeek(cr, currentScheduleWeek);
     });
     var defaultText = cellCourses.map(function(cr) {
-      return cr.name + '[' + cr.teacher + '] ' + cr.startWeek + (cr.startWeek !== cr.endWeek ? '-' + cr.endWeek : '') + '周;' + cr.location;
+      return cr.name + '[' + cr.teacher + '] ' + scheduleWeeksLabel(cr) + '周;' + cr.location;
     }).join('\n');
     var text = prompt('编辑课程（格式：课程名[教师] 周次;地点），留空则清除该格课程：', defaultText);
     if (text === null) return;
-    // 清除该格旧课程
-    scheduleData.courses = scheduleData.courses.filter(function(cr) {
-      return !(cr.day === day && cr.slot === slot);
-    });
+    var replacements = [];
     if (text.trim() !== '') {
       var lines = text.split('\n');
       for (var li = 0; li < lines.length; li++) {
         var line = lines[li].trim();
         if (!line) continue;
-        var m = line.match(/^(.+?)\[([^\]]+)\]\s*(\d+)-(\d+)周?\s*[;；]\s*(.+)$/);
-        if (!m) m = line.match(/^(.+?)\[([^\]]+)\]\s*(\d+)\s*周?\s*[;；]\s*(.+)$/);
-        if (m) {
-          scheduleData.courses.push({
-            day: day, slot: slot,
-            startWeek: parseInt(m[3], 10), endWeek: m[4] ? parseInt(m[4], 10) : parseInt(m[3], 10),
-            name: m[1].trim(), teacher: m[2].trim(), location: (m[5] || m[4]).trim()
-          });
-        } else if (line.trim()) {
-          scheduleData.courses.push({
-            day: day, slot: slot,
-            startWeek: 1, endWeek: 20,
-            name: line.trim(), teacher: '', location: ''
-          });
+        var course;
+        try { course = parseOneCourse(line); }
+        catch (err) { alert(err.message); return; }
+        if (!course && /[\[\]]/.test(line)) {
+          alert('课程格式未识别，请使用：课程名[教师] 1-4,6-9周;地点');
+          return;
         }
+        course = course || { startWeek: 1, endWeek: 20, name: line, teacher: '', location: '' };
+        course.day = day;
+        course.slot = slot;
+        replacements.push(course);
       }
     }
+    // 只替换本次显示的安排，保留同格其他周的课程。
+    scheduleData.courses = scheduleData.courses.filter(function(cr) {
+      return cellCourses.indexOf(cr) === -1;
+    }).concat(replacements);
     saveScheduleData();
     renderScheduleTable(currentScheduleWeek);
   });
@@ -4350,7 +4413,7 @@ body {
       });
       // 也检查该格课程
       var cellCourses = scheduleData.courses.filter(function(cr) {
-        return cr.day === day && cr.slot === slot && cr.startWeek <= currentScheduleWeek && cr.endWeek >= currentScheduleWeek;
+        return cr.day === day && cr.slot === slot && scheduleCourseHasWeek(cr, currentScheduleWeek);
       });
 
       var msg = '';
@@ -4367,7 +4430,7 @@ body {
 
       if (cellCourses.length > 0) {
         scheduleData.courses = scheduleData.courses.filter(function(cr) {
-          return !(cr.day === day && cr.slot === slot);
+          return cellCourses.indexOf(cr) === -1;
         });
         saveScheduleData();
       }
@@ -4382,12 +4445,12 @@ body {
     } else {
       // 编辑模式 → 清除该格课程
       var cellCourses2 = scheduleData.courses.filter(function(cr) {
-        return cr.day === day && cr.slot === slot && cr.startWeek <= currentScheduleWeek && cr.endWeek >= currentScheduleWeek;
+        return cr.day === day && cr.slot === slot && scheduleCourseHasWeek(cr, currentScheduleWeek);
       });
       if (cellCourses2.length === 0) return;
       if (!confirm('确定删除该格 ' + cellCourses2.length + ' 门课程？')) return;
       scheduleData.courses = scheduleData.courses.filter(function(cr) {
-        return !(cr.day === day && cr.slot === slot);
+        return cellCourses2.indexOf(cr) === -1;
       });
       saveScheduleData();
       renderScheduleTable(currentScheduleWeek);
@@ -4395,86 +4458,148 @@ body {
   });
 
   // 文件导入课表（JSON 或 XLS）
-  function parseCourseCell(cellText) {
-    var courses = [];
-    if (!cellText) return courses;
-    // 按课程名[ 分割多个课程
-    var parts = cellText.split(/(?:\n|(?=\S+\[))/);
-    var current = '';
-    parts.forEach(function(part) {
-      part = part.trim();
-      if (!part) return;
-      if (/\[[^\]]+\]/.test(part) && /\d+.*周/.test(part)) {
-        if (current) { var c = parseOneCourse(current); if (c) courses.push(c); }
-        current = part;
-      } else {
-        current += (current ? ' ' : '') + part;
-      }
-    });
-    if (current) { var c2 = parseOneCourse(current); if (c2) courses.push(c2); }
-    return courses;
-  }
-  function parseOneCourse(text) {
-    text = text.replace(/\s+/g, ' ').trim();
-    if (!text) return null;
-    var m = text.match(/(.+?)\[([^\]]+)\]\s*(\d+)(?:-(\d+))?\s*周\s*(?:[;；]\s*(.+))?$/);
-    if (!m) m = text.match(/(.+?)\[([^\]]+)\]\s*(\d+)\s*周\s*(.*)$/);
-    if (m) {
-      return {
-        startWeek: parseInt(m[3], 10),
-        endWeek: (m[4] && /^\d+$/.test(m[4])) ? parseInt(m[4], 10) : parseInt(m[3], 10),
-        name: m[1].trim(), teacher: m[2].trim(),
-        location: (m[5] || '').replace(/^[;；]\s*/, '').trim()
-      };
-    }
-    return null;
+  // weeks 是实际开课周次；startWeek/endWeek 保留用于兼容旧课表。
+  function scheduleCourseHasWeek(course, week) {
+    if (Array.isArray(course.weeks)) return course.weeks.indexOf(Number(week)) !== -1;
+    return course.startWeek <= week && course.endWeek >= week;
   }
 
-  // 从JSON二维数组解析课程
+  function scheduleWeeksLabel(course) {
+    if (!Array.isArray(course.weeks)) {
+      return course.startWeek + (course.startWeek === course.endWeek ? '' : '-' + course.endWeek);
+    }
+    var groups = [], weeks = course.weeks;
+    for (var i = 0; i < weeks.length; i++) {
+      var first = weeks[i], last = first;
+      while (i + 1 < weeks.length && weeks[i + 1] === last + 1) last = weeks[++i];
+      groups.push(first === last ? String(first) : first + '-' + last);
+    }
+    return groups.join(',');
+  }
+
+  function parseScheduleWeeks(text) {
+    var weeks = [];
+    String(text).split(/[,，、]/).forEach(function(part) {
+      var m = part.trim().match(/^(\d+)(?:\s*[-~～—–]\s*(\d+))?$/);
+      if (!m) throw new Error('无法识别周次：' + text);
+      var first = Number(m[1]), last = m[2] ? Number(m[2]) : first;
+      if (first < 1 || last < first || last - first > 1000) throw new Error('周次范围无效：' + text);
+      for (var w = first; w <= last; w++) if (weeks.indexOf(w) === -1) weeks.push(w);
+    });
+    return weeks.sort(function(a, b) { return a - b; });
+  }
+
+  function parseOneCourse(text) {
+    var m = String(text).trim().match(/^(.+?)\s*\[([^\]]*)\]\s*([\d\s,，、~～—–-]+)周\s*[;；]\s*([\s\S]*)$/);
+    if (!m) return null;
+    var weeks = parseScheduleWeeks(m[3]);
+    return { name: m[1].trim(), teacher: m[2].trim(), weeks: weeks,
+      startWeek: weeks[0], endWeek: weeks[weeks.length - 1], location: m[4].trim() };
+  }
+
+  function parseCourseCell(cellText) {
+    var text = String(cellText || '').replace(/\r\n?/g, '\n').trim();
+    if (!text) return [];
+    // 按完整的“课程名[教师]”边界切分，不在名称的每个汉字前切开。
+    var re = /(?:^|\s)[^\s\[\];；]+\s*\[[^\]\r\n]*\]/g;
+    var starts = [], m;
+    while ((m = re.exec(text)) !== null) starts.push(m.index);
+    if (!starts.length || text.slice(0, starts[0]).trim()) throw new Error('未识别课程：' + text.slice(0, 60));
+    return starts.map(function(pos, idx) {
+      var part = text.slice(pos, idx + 1 < starts.length ? starts[idx + 1] : text.length);
+      var course = parseOneCourse(part);
+      if (!course) throw new Error('未识别课程或周次：' + part.trim().slice(0, 60));
+      return course;
+    });
+  }
+
+  // 原 Excel 未标明跨度。仅对完整匹配的已知课表应用用户确认的第8周周六连堂。
+  function applyConfirmedContinuation(courses) {
+    var signature = courses.map(function(course) { return stableStringify(course); }).sort().join('\n');
+    if (signature !== CONFIRMED_CONTINUATION_SOURCE) return false;
+    courses.push({"name":"嵌入式系统原理","teacher":"李文超副教授","weeks":[8],"startWeek":8,"endWeek":8,"location":"成栋楼820","day":6,"slot":3});
+    return true;
+  }
+
+  function parseScheduleTable(rows, fallbackSlots) {
+    if (!Array.isArray(rows)) throw new Error('课表必须是二维表格');
+    var dayChars = '一二三四五六日', columns = [], header = -1;
+    for (var r = 0; r < rows.length; r++) {
+      if (!Array.isArray(rows[r])) continue;
+      var found = [];
+      rows[r].forEach(function(cell, col) {
+        var match = String(cell).replace(/\s/g, '').match(/^(?:星期|周|礼拜)([一二三四五六日天])$/);
+        if (match) found.push({ col: col, day: match[1] === '天' ? 7 : dayChars.indexOf(match[1]) + 1 });
+      });
+      if (found.length >= 2) { header = r; columns = found; break; }
+    }
+    if (header < 0) throw new Error('未找到星期一至星期日的课表表头');
+    var seenDays = {};
+    columns.forEach(function(c) {
+      if (seenDays[c.day]) throw new Error('课表中存在重复的星期列');
+      seenDays[c.day] = true;
+    });
+    var slots = (fallbackSlots || DEFAULT_TIME_SLOTS).map(function(slot) {
+      return { name: slot.name, sub: slot.sub, time: slot.time };
+    });
+    var courses = [], notes = [], seenSlots = {};
+    for (var row = header + 1; row < rows.length; row++) {
+      var cells = rows[row];
+      if (!Array.isArray(cells)) continue;
+      var joined = cells.map(function(c) { return String(c || '').trim(); }).filter(Boolean).join('\n');
+      if (/^备注[:：]/.test(joined)) { notes.push(joined.replace(/^备注[:：]\s*/, '')); continue; }
+      if (!joined) continue;
+      var label = cells.slice(0, columns[0].col).join('\n');
+      var slot = -1;
+      for (var s = 0; s < DEFAULT_TIME_SLOTS.length; s++) {
+        if (label.indexOf(DEFAULT_TIME_SLOTS[s].name) !== -1 || label.indexOf(DEFAULT_TIME_SLOTS[s].sub) !== -1) {
+          slot = s; break;
+        }
+      }
+      if (slot < 0) throw new Error('第 ' + (row + 1) + ' 行未识别节次：' + label.trim());
+      if (seenSlots[slot]) throw new Error('课表中存在重复节次：' + slots[slot].name);
+      seenSlots[slot] = true;
+      var time = label.match(/(\d{1,2}:\d{2})\s*[~～—–-]\s*(\d{1,2}:\d{2})/);
+      if (time) slots[slot].time = time[1] + '~' + time[2];
+      columns.forEach(function(col) {
+        try {
+          parseCourseCell(cells[col.col]).forEach(function(course) {
+            course.day = col.day;
+            course.slot = slot;
+            courses.push(course);
+          });
+        } catch (err) {
+          throw new Error('第 ' + (row + 1) + ' 行，星期' + dayChars[col.day - 1] + '：' + err.message);
+        }
+      });
+    }
+    if (!courses.length) throw new Error('课表中没有可导入的上课安排');
+    if (applyConfirmedContinuation(courses)) notes.push(CONFIRMED_CONTINUATION_NOTE);
+    return { courses: courses, timeSlots: slots, notes: notes.join('\n') };
+  }
+
   function parseScheduleJSON(rows) {
-    var courses = [];
-    if (!Array.isArray(rows) || rows.length < 4) return courses;
-    // 找表头行（含"星期"）
-    var headerRow = -1;
-    for (var i = 0; i < rows.length; i++) {
-      var r = rows[i];
-      if (Array.isArray(r) && r.some(function(cell) { return /星期/.test(String(cell)); })) {
-        headerRow = i; break;
-      }
-    }
-    if (headerRow < 0) headerRow = 2;
-    var timeSlotCount = Math.min(rows.length - headerRow - 1, 6);
-    for (var r2 = headerRow + 1; r2 < headerRow + 1 + timeSlotCount && r2 < rows.length; r2++) {
-      var cells = rows[r2] || [];
-      var slotIdx = r2 - headerRow - 1;
-      for (var c = 1; c <= 7 && c < cells.length; c++) {
-        var txt = String(cells[c] || '').trim();
-        if (!txt) continue;
-        var parsed = parseCourseCell(txt);
-        parsed.forEach(function(cr) {
-          courses.push({ day: c, slot: slotIdx, startWeek: cr.startWeek, endWeek: cr.endWeek, name: cr.name, teacher: cr.teacher, location: cr.location });
-        });
-      }
-    }
-    return courses;
+    return parseScheduleTable(rows).courses;
+  }
+
+  // 先完整解析再替换；任何格子失败都保留原课表。
+  function applyImportedSchedule(parsed) {
+    scheduleData.courses = parsed.courses;
+    scheduleData.timeSlots = parsed.timeSlots;
+    scheduleData.notes = parsed.notes;
+    saveScheduleData();
+    currentScheduleWeek = getCurrentWeek();
+    renderScheduleTable(currentScheduleWeek);
+    alert('导入成功！共识别 ' + parsed.courses.length + ' 条上课安排。');
   }
 
   function importFromJSONFile(file) {
     var reader = new FileReader();
     reader.onload = function(e) {
       try {
-        var json = JSON.parse(e.target.result);
+        var json = JSON.parse(e.target.result.replace(/^\uFEFF/, ''));
         var rows = Array.isArray(json) ? json : (json.rows || json.data || []);
-        var courses = parseScheduleJSON(rows);
-        if (courses.length > 0) {
-          scheduleData.courses = courses;
-          saveScheduleData();
-          currentScheduleWeek = getCurrentWeek();
-          renderScheduleTable(currentScheduleWeek);
-          alert('导入成功！共解析 ' + courses.length + ' 门课程。');
-        } else {
-          alert('未能从文件中解析到课程。请确保JSON是课表二维数组格式。');
-        }
+        applyImportedSchedule(parseScheduleTable(rows, scheduleData.timeSlots));
       } catch(err) {
         alert('JSON解析失败：' + err.message);
       }
@@ -4495,16 +4620,7 @@ body {
         var wb = XLSX.read(data, { type: 'array' });
         var ws = wb.Sheets[wb.SheetNames[0]];
         var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-        var courses = parseScheduleJSON(rows);
-        if (courses.length > 0) {
-          scheduleData.courses = courses;
-          saveScheduleData();
-          currentScheduleWeek = getCurrentWeek();
-          renderScheduleTable(currentScheduleWeek);
-          alert('导入成功！共解析 ' + courses.length + ' 门课程。');
-        } else {
-          alert('未能从文件中解析到课程。请确保是课表表格文件。');
-        }
+        applyImportedSchedule(parseScheduleTable(rows, scheduleData.timeSlots));
       } catch(err) {
         alert('课表文件解析失败：' + err.message);
       }
@@ -4650,10 +4766,10 @@ body {
 
   function isIdeasEditing() {
     var el = document.activeElement;
-    if (el && el.id === 'ideasTextarea') return true;
+    if (ideaView === 'edit' || (el && el.id === 'ideasTextarea')) return true;
     // 标记模式下编辑框是隐藏的、永远拿不到焦点，涂抹过程中若被拉取刷新会丢笔画；
     // 因此把「正在涂抹」以及「停留在标记模式」也视为编辑中，跳过思路刷新。
-    if (penPainting) return true;
+    if (penStroke) return true;
     if (ideaMode === 'pen') return true;
     return false;
   }
@@ -4697,7 +4813,7 @@ body {
           }
           if (todosChanged || delChanged) cleanupTodayDeleted(delMap);
 
-          var ideasChanged = mergeRemoteIdeas(rd.my_ideas);
+          var ideasChanged = !isIdeasEditing() && mergeRemoteIdeas(rd.my_ideas);
           if (ideasChanged && !isIdeasEditing()) {
             safeCall(function() { ideasLoadPage(ideasCurrentDate); }, 'pull-ideas');
           }

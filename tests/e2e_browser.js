@@ -659,7 +659,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         '点蜡笔（不选色）→ 直接进入涂抹态');
   check(await evalJs(`document.getElementById('ideasPenGroup').classList.contains('open')`),
         '点蜡笔后面板同步弹出');
-  // 立即拖动两行（不选色）→ 应涂上当前笔色，内容不丢；轨迹只涂有事件经过的行
+  // 快速跨行拖动（不选色）→ 连续涂上路径中的行，保留正文。
   {
     const g10 = await freshLines();
     const a = g10.lines[0], b = g10.lines[2];
@@ -672,7 +672,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const t10 = (await evalJs(`document.getElementById('ideasTextarea').value`)).split('\n');
     check(/^\[[ryg]\] 第一行内容$/.test(t10[0]) && t10[0].indexOf('第一行内容') !== -1,
           '未选色直接拖动 → 当前笔色涂上且正文在', '实际=' + JSON.stringify(t10[0]));
-    check(t10[1] === '第二行内容', '行1 未被误涂（正文原样）', '实际=' + JSON.stringify(t10[1]));
+    check(/^\[[ryg]\] 第二行内容$/.test(t10[1]), '快速跨行补齐中间行，正文原样', '实际=' + JSON.stringify(t10[1]));
     check(/^\[[ryg]\] $/.test(t10[2]) && t10[3] === '第四行内容',
           '空行涂上笔色、末行不受波及', '实际=' + JSON.stringify([t10[2], t10[3]]));
     // 即使存在选区，涂抹态 Delete/Backspace 拦截 → 内容不可被删（两行消失的最终防线）

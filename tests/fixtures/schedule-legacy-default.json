@@ -1,0 +1,173 @@
+[
+  {
+    "day": 1,
+    "startWeek": 1,
+    "endWeek": 9,
+    "name": "信息论基础",
+    "teacher": "邢键教授",
+    "location": "成栋楼305",
+    "slot": 0
+  },
+  {
+    "day": 1,
+    "startWeek": 1,
+    "endWeek": 3,
+    "name": "嵌入式系统原理",
+    "teacher": "李明讲师（高校）",
+    "location": "成栋楼311",
+    "slot": 0
+  },
+  {
+    "day": 1,
+    "startWeek": 4,
+    "endWeek": 7,
+    "name": "嵌入式系统原理",
+    "teacher": "李文超副教授",
+    "location": "成栋楼311",
+    "slot": 0
+  },
+  {
+    "day": 1,
+    "startWeek": 11,
+    "endWeek": 12,
+    "name": "数字信号处理",
+    "teacher": "刘淑玉讲师（高校）",
+    "location": "成栋楼811",
+    "slot": 0
+  },
+  {
+    "day": 3,
+    "startWeek": 1,
+    "endWeek": 3,
+    "name": "嵌入式系统原理",
+    "teacher": "李明讲师（高校）",
+    "location": "成栋楼311",
+    "slot": 0
+  },
+  {
+    "day": 3,
+    "startWeek": 4,
+    "endWeek": 7,
+    "name": "嵌入式系统原理",
+    "teacher": "李文超副教授",
+    "location": "成栋楼311",
+    "slot": 0
+  },
+  {
+    "day": 7,
+    "startWeek": 14,
+    "endWeek": 14,
+    "name": "高频电子线路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼826",
+    "slot": 0
+  },
+  {
+    "day": 7,
+    "startWeek": 15,
+    "endWeek": 15,
+    "name": "高频电子线路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼820",
+    "slot": 0
+  },
+  {
+    "day": 2,
+    "startWeek": 1,
+    "endWeek": 15,
+    "name": "高频电子线路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼336",
+    "slot": 1
+  },
+  {
+    "day": 3,
+    "startWeek": 1,
+    "endWeek": 9,
+    "name": "信息论基础",
+    "teacher": "邢键教授",
+    "location": "成栋楼305",
+    "slot": 1
+  },
+  {
+    "day": 4,
+    "startWeek": 1,
+    "endWeek": 17,
+    "name": "数字信号处理",
+    "teacher": "刘淑玉讲师（高校）",
+    "location": "成栋楼334",
+    "slot": 1
+  },
+  {
+    "day": 5,
+    "startWeek": 5,
+    "endWeek": 9,
+    "name": "信息论基础",
+    "teacher": "邢键教授",
+    "location": "成栋楼822",
+    "slot": 1
+  },
+  {
+    "day": 2,
+    "startWeek": 1,
+    "endWeek": 17,
+    "name": "数字信号处理",
+    "teacher": "刘淑玉讲师（高校）",
+    "location": "成栋楼334",
+    "slot": 2
+  },
+  {
+    "day": 4,
+    "startWeek": 1,
+    "endWeek": 15,
+    "name": "高频电子线路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼336",
+    "slot": 2
+  },
+  {
+    "day": 6,
+    "startWeek": 2,
+    "endWeek": 4,
+    "name": "嵌入式系统原理",
+    "teacher": "李明讲师（高校）",
+    "location": "成栋楼820",
+    "slot": 2
+  },
+  {
+    "day": 6,
+    "startWeek": 5,
+    "endWeek": 8,
+    "name": "嵌入式系统原理",
+    "teacher": "李文超副教授",
+    "location": "成栋楼820",
+    "slot": 2
+  },
+  {
+    "day": 6,
+    "startWeek": 12,
+    "endWeek": 13,
+    "name": "高频电子线路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼826",
+    "slot": 2
+  },
+  {
+    "day": 1,
+    "startWeek": 1,
+    "endWeek": 11,
+    "name": "毛泽东思想和中国特色社会主义理论体系概论",
+    "teacher": "李军刚教授",
+    "location": "锦绣楼T502",
+    "slot": 3
+  },
+  {
+    "day": 5,
+    "startWeek": 1,
+    "endWeek": 11,
+    "name": "毛泽东思想和中国特色社会主义理论体系概论",
+    "teacher": "李军刚教授",
+    "location": "锦绣楼T502",
+    "slot": 3
+  }
+]

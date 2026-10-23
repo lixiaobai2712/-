@@ -66,11 +66,13 @@ const getJson = url => new Promise((res, rej) => http.get(url, r => { let d = ''
   check(await evalJs(`document.getElementById('ideasDrawer').classList.contains('show')`), '抽屉已打开');
 
   console.log('\n── 2. 写入内容并渲染 ──');
-  // 模拟真实输入：编辑器里已有渲染内容（每行一个 div，含 ]]，触发同步真源+重排）
+  // 进入纯文本编辑会话，输入语法原文；失焦后才渲染颜色和说明。
   await evalJs(`(function(){
       var ed=document.getElementById('mIdeasEditor');
-      ed.innerHTML = '<div class="idea-line">[r] 急着交的报告</div><div class="idea-line">问老师 <span class="idea-link" contenteditable="false" data-raw="[[评分标准|占 40%，迟交扣 10%]]" data-tip="占 40%，迟交扣 10%">评分标准</span></div><div class="idea-line"><br></div><div class="idea-line">看剧</div><div class="idea-line">打游戏</div>';
+      ed.click();
+      ed.innerHTML = '<div>[r] 急着交的报告</div><div>问老师 [[评分标准|占 40%，迟交扣 10%]]</div><div><br></div><div>看剧</div><div>打游戏</div>';
       ed.dispatchEvent(new Event('input',{bubbles:true}));
+      ed.blur();
       return true; })()`);
   await sleep(500);
   check(await evalJs(`document.getElementById('ideasTextarea').value.indexOf('[r] 急着交的报告') !== -1`), '真源同步了 [r] 语法');

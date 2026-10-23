@@ -1,0 +1,110 @@
+[
+  {
+    "day": 3,
+    "slot": 0,
+    "startWeek": 1,
+    "endWeek": 3,
+    "name": "嵌 入 式 系 统 原 理",
+    "teacher": "李明讲师（高校）",
+    "location": "成栋楼(成栋楼311) 嵌 入 式 系 统 原 理[李文超副教授] 4-7周;成栋楼(成栋楼311)"
+  },
+  {
+    "day": 7,
+    "slot": 0,
+    "startWeek": 14,
+    "endWeek": 14,
+    "name": "高 频 电 子 线 路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼(成栋楼826) 高 频 电 子 线 路[白岩副教授] 15周;成栋楼(成栋楼820)"
+  },
+  {
+    "day": 2,
+    "slot": 1,
+    "startWeek": 1,
+    "endWeek": 15,
+    "name": "高 频 电 子 线 路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼(成栋楼336)"
+  },
+  {
+    "day": 3,
+    "slot": 1,
+    "startWeek": 1,
+    "endWeek": 9,
+    "name": "信 息 论 基 础",
+    "teacher": "邢键教授",
+    "location": "成栋楼(成栋楼305)"
+  },
+  {
+    "day": 4,
+    "slot": 1,
+    "startWeek": 1,
+    "endWeek": 17,
+    "name": "数 字 信 号 处 理",
+    "teacher": "刘淑玉讲师（高校）",
+    "location": "成栋楼(成栋楼334)"
+  },
+  {
+    "day": 5,
+    "slot": 1,
+    "startWeek": 5,
+    "endWeek": 9,
+    "name": "信 息 论 基 础",
+    "teacher": "邢键教授",
+    "location": "成栋楼(成栋楼822)"
+  },
+  {
+    "day": 2,
+    "slot": 2,
+    "startWeek": 1,
+    "endWeek": 17,
+    "name": "数 字 信 号 处 理",
+    "teacher": "刘淑玉讲师（高校）",
+    "location": "成栋楼(成栋楼334)"
+  },
+  {
+    "day": 4,
+    "slot": 2,
+    "startWeek": 1,
+    "endWeek": 15,
+    "name": "高 频 电 子 线 路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼(成栋楼336)"
+  },
+  {
+    "day": 6,
+    "slot": 2,
+    "startWeek": 2,
+    "endWeek": 4,
+    "name": "嵌 入 式 系 统 原 理",
+    "teacher": "李明讲师（高校）",
+    "location": "成栋楼(成栋楼820) 嵌 入 式 系 统 原 理[李文超副教授] 5-8周;成栋楼(成栋楼820)"
+  },
+  {
+    "day": 7,
+    "slot": 2,
+    "startWeek": 12,
+    "endWeek": 13,
+    "name": "高 频 电 子 线 路",
+    "teacher": "白岩副教授",
+    "location": "成栋楼(成栋楼826)"
+  },
+  {
+    "day": 1,
+    "slot": 3,
+    "startWeek": 1,
+    "endWeek": 11,
+    "name": "毛 泽 东 思 想 和 中 国 特 色 社 会 主 义 理 论 体 系 概 论",
+    "teacher": "李军刚教授",
+    "location": "锦绣楼(锦绣楼T502)"
+  },
+  {
+    "day": 5,
+    "slot": 3,
+    "startWeek": 1,
+    "endWeek": 11,
+    "name": "毛 泽 东 思 想 和 中 国 特 色 社 会 主 义 理 论 体 系 概 论",
+    "teacher": "李军刚教授",
+    "location": "锦绣楼(锦绣楼T502)"
+  }
+]
